@@ -33,5 +33,6 @@
 #include "Actuator.h"
 #include "Device.h"
 #include "Lm35.h"
+#include "Neo6m.h"
 
 #endif // MODEST_IOT_H
