@@ -35,5 +35,6 @@
 #include "Lm35.h"
 #include "Neo6m.h"
 #include "Max30102.h"
+#include "Lcd1602.h"
 
 #endif // MODEST_IOT_H
