@@ -1,0 +1,68 @@
+/**
+ * @file Lm35.cpp
+ * @brief Implements the Lm35 class.
+ *
+ * Reads linear centigrade temperature from an LM35 analog output in the Modest IoT Nano-framework.
+ * Event generation (TEMPERATURE_READ_EVENT) is typically triggered externally via polling in user code.
+ *
+ * @author Angel Velasquez
+ * @date March 22, 2025
+ * @version 0.1
+ */
+
+/*
+ * This file is part of the Modest IoT Nano-framework (C++ Edition).
+ * Copyright (c) 2025 Angel Velasquez
+ *
+ * Licensed under the Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0).
+ * You may use, copy, and distribute this software in its original, unmodified form, provided
+ * you give appropriate credit to the original author (Angel Velasquez) and include this notice.
+ * Modifications, adaptations, or derivative works are not permitted.
+ *
+ * Full license text: https://creativecommons.org/licenses/by-nd/4.0/legalcode
+ */
+
+#include "Lm35.h"
+#include <Arduino.h>
+
+const Event Lm35::TEMPERATURE_READ_EVENT = Event(TEMPERATURE_READ_EVENT_ID);
+const float Lm35::BODY_CONTACT_THRESHOLD_C = 30.0f;
+const float Lm35::BODY_TEMP_MAX_C = 42.0f;
+
+static const float ADC_VREF = 3.3f;
+static const int ADC_MAX = 4095;
+static const float LM35_MV_PER_C = 10.0f;
+
+Lm35::Lm35(int pin, EventHandler* eventHandler)
+    : Sensor(pin, eventHandler), lastReading(0.0f) {}
+
+void Lm35::begin() {
+    pinMode(pin, INPUT);
+#if defined(ESP32)
+    analogReadResolution(12);
+    analogSetAttenuation(ADC_11db);
+#endif
+}
+
+float Lm35::readTemperatureCelsius() {
+    long rawSum = 0;
+    for (int i = 0; i < 4; i++) {
+        rawSum += analogRead(pin);
+        delay(2);
+    }
+    float voltage = ((rawSum / 4.0f) * ADC_VREF) / ADC_MAX;
+    return (voltage * 1000.0f) / LM35_MV_PER_C;
+}
+
+float Lm35::getLastReading() const {
+    return lastReading;
+}
+
+bool Lm35::isBodyTemperatureValid() const {
+    return lastReading >= BODY_CONTACT_THRESHOLD_C && lastReading <= BODY_TEMP_MAX_C;
+}
+
+void Lm35::readAndTriggerEvent() {
+    lastReading = readTemperatureCelsius();
+    on(TEMPERATURE_READ_EVENT);
+}
