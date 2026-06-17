@@ -32,5 +32,6 @@
 #include "Sensor.h"
 #include "Actuator.h"
 #include "Device.h"
+#include "Lm35.h"
 
 #endif // MODEST_IOT_H
