@@ -1,11 +1,13 @@
 # Veyra Embedded App
 
+**Author**: Metasoft  
+**Project**: Veyra health-monitoring firmware  
 **Version**: 0.1  
 **Date**: June 2026
 
 ## Overview
 
-Embedded health-monitoring application for ESP32 built on the **Modest IoT Nano-framework (C++ Edition)**. The project combines the framework core with sensors and an actuator:
+Embedded health-monitoring application for ESP32 developed by **Metasoft** for the Veyra device. It is built on the **Modest IoT Nano-framework (C++ Edition)** by Angel Velasquez and combines the framework core with project-specific sensor drivers and an actuator:
 
 | Component | Role |
 |-----------|------|
@@ -69,6 +71,13 @@ Use short jumper wires; secure GND and power on every module.
 4. Click **Verify**, then **Upload**.
 
 ## Project structure
+
+| Layer | Files | Maintainer |
+|-------|-------|------------|
+| **Veyra application** | `VeyraDevice`, `veyra-embedded-app.ino` | Metasoft |
+| **Sensor drivers & LCD** | `Lm35`, `Neo6m`, `Max30102`, `Lcd1602` | Metasoft |
+| **Framework core** | `Sensor`, `Actuator`, `Device`, `EventHandler`, `CommandHandler`, `ModestIoT.h` | Angel Velasquez (CC BY-ND 4.0) |
+| **HR/SpO2 algorithm** | `spo2_algorithm` | Maxim Integrated |
 
 ```
 veyra-embedded-app/
@@ -202,8 +211,16 @@ At boot, `Neo6m::begin()` probes **9600, 115200, and 4800** baud and locks onto 
 - **GPS:** Test outdoors with the antenna facing up; indoor fix is often unavailable.
 - **Power:** Several modules on USB can trigger brownout resets; use a stable 5 V supply if uploads or runtime are unstable.
 
-## License
+## Credits and license
 
-Framework components are based on the Modest IoT Nano-framework (C++ Edition) by Angel Velasquez, licensed under [CC BY-ND 4.0](https://creativecommons.org/licenses/by-nd/4.0/legalcode).
+### Veyra application (Metasoft)
+
+Copyright © 2026 **Metasoft**. Sensor drivers, `VeyraDevice`, the Arduino sketch, and project documentation are part of the **Veyra Embedded App** developed by Metasoft.
+
+### Modest IoT Nano-framework
+
+Framework core files (`Sensor`, `Actuator`, `Device`, `EventHandler`, `CommandHandler`, `ModestIoT.h`) are based on the **Modest IoT Nano-framework (C++ Edition)** by **Angel Velasquez**, licensed under [CC BY-ND 4.0](https://creativecommons.org/licenses/by-nd/4.0/legalcode). Those files retain the original copyright notice in their headers.
+
+### Third-party components
 
 The Maxim `spo2_algorithm` sources retain their original license (see file headers).

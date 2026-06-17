@@ -1,4 +1,6 @@
 @startuml
+' Veyra Embedded App — Metasoft
+' Framework core (Sensor, Actuator, Device, …) by Angel Velasquez
 
 top to bottom direction
 

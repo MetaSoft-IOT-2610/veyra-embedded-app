@@ -1,6 +1,10 @@
 # User Stories — Veyra Embedded App
 
-User stories for the Veyra health-monitoring application built with the Modest IoT Nano-framework (C++ Edition).
+**Maintained by**: Metasoft  
+**Project**: Veyra health-monitoring firmware  
+**Last updated**: June 2026
+
+User stories for the Veyra health-monitoring application developed by Metasoft, built on the Modest IoT Nano-framework (C++ Edition) by Angel Velasquez.
 
 Personas:
 
@@ -91,4 +95,10 @@ Acceptance criteria use the **Given-When-Then** format.
 
 ---
 
-*Last updated: June 2026*
+## Attribution
+
+| Component | Author |
+|-----------|--------|
+| Veyra firmware, drivers, documentation | Metasoft |
+| Modest IoT Nano-framework core | Angel Velasquez ([CC BY-ND 4.0](https://creativecommons.org/licenses/by-nd/4.0/legalcode)) |
+| `spo2_algorithm` | Maxim Integrated |

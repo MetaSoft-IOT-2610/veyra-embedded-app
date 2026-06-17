@@ -2,16 +2,18 @@
  * @file Neo6m.cpp
  * @brief Implements the Neo6m class.
  *
- * @author Angel Velasquez
- * @date March 22, 2025
+ * @author Metasoft
+ * @date June 2026
  * @version 0.1
  */
 
 /*
- * This file is part of the Modest IoT Nano-framework (C++ Edition).
- * Copyright (c) 2025 Angel Velasquez
+ * Veyra Embedded App
+ * Copyright (c) 2026 Metasoft
  *
- * Licensed under the Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0).
+ * Developed by Metasoft for the Veyra health-monitoring device.
+ * Built on the Modest IoT Nano-framework (C++ Edition) by Angel Velasquez.
+ * Framework source files retain their original copyright and CC BY-ND 4.0 license.
  */
 
 #include "Neo6m.h"
