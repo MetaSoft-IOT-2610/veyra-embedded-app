@@ -1,0 +1,131 @@
+@startuml
+
+top to bottom direction
+
+class Command {
+    int id
+    +Command(int commandId)
+    +operator==(const Command& other) : bool
+}
+class Event {
+    int id
+    +Event(int eventId)
+    +operator==(const Event& other) : bool
+}
+
+abstract class CommandHandler {
+    +handle(Command command)
+}
+abstract class EventHandler {
+    +on(Event event)
+}
+
+abstract class Device {
+    +on(Event event)
+    +handle(Command command)
+}
+Device -up-|> EventHandler
+Device -up-|> CommandHandler
+
+class Sensor {
+    protected int pin
+    protected EventHandler* handler
+    +Sensor(int pin, EventHandler* eventHandler = nullptr)
+    +on(Event event)
+}
+Sensor -up-|> EventHandler
+
+class Actuator {
+    protected int pin
+    protected CommandHandler* handler
+    +Actuator(int pin, CommandHandler* commandHandler = nullptr)
+    +handle(Command command)
+}
+Actuator -up-|> CommandHandler
+
+class Lm35 {
+    static const int TEMPERATURE_READ_EVENT_ID
+    static const Event TEMPERATURE_READ_EVENT
+    static const float BODY_CONTACT_THRESHOLD_C
+    static const float BODY_TEMP_MAX_C
+    +begin()
+    +readTemperatureCelsius() : float
+    +readAndTriggerEvent()
+    +getLastReading() : float
+    +isBodyTemperatureValid() : bool
+}
+Lm35 -up-|> Sensor
+
+class Neo6m {
+    static const int LOCATION_READ_EVENT_ID
+    static const Event LOCATION_READ_EVENT
+    +begin()
+    +update()
+    +getLastLatitude() : float
+    +getLastLongitude() : float
+    +isLastReadingValid() : bool
+    +isReceivingData() : bool
+    +getSatelliteCount() : int
+    +getSatellitesInView() : int
+    +getBytesReceived() : unsigned long
+    +getActiveBaudRate() : long
+}
+Neo6m -up-|> Sensor
+
+class "spo2_algorithm" as Spo2Algorithm {
+    +maxim_heart_rate_and_oxygen_saturation(...)
+}
+
+class Max30102 {
+    static const int PPG_READ_EVENT_ID
+    static const Event PPG_READ_EVENT
+    +begin()
+    +update()
+    +getLastHeartRate() : int
+    +getLastSpO2() : int
+    +isLastReadingValid() : bool
+    +isLastSpO2Valid() : bool
+    +isInitialized() : bool
+    +isFingerDetected() : bool
+    +isSignalSaturated() : bool
+    +getLastIrAverage() : uint32_t
+    +getLastIrVariation() : uint32_t
+}
+Max30102 -up-|> Sensor
+Max30102 ..> Spo2Algorithm : uses
+
+class Lcd1602 {
+    static const Command REFRESH_COMMAND
+    static const Command CLEAR_COMMAND
+    +begin()
+    +handle(Command command)
+    +setLine(uint8_t row, const char* text)
+    +clearBuffer()
+    +refresh()
+    +isInitialized() : bool
+}
+Lcd1602 -up-|> Actuator
+
+class VeyraDevice {
+    +begin()
+    +update()
+    +on(Event event)
+    +handle(Command command)
+    +getLm35() : Lm35&
+    +getNeo6m() : Neo6m&
+    +getMax30102() : Max30102&
+    +getLcd() : Lcd1602&
+}
+VeyraDevice -up-|> Device
+VeyraDevice *-- Lm35
+VeyraDevice *-- Neo6m
+VeyraDevice *-- Max30102
+VeyraDevice *-- Lcd1602
+
+note right of VeyraDevice
+  Serial/LCD refresh every 2 s
+  via refreshStatus(); on(Event)
+  is currently a no-op.
+end note
+
+@enduml
