@@ -2,21 +2,18 @@
  * @file veyra-embedded-app.ino
  * @brief Veyra Embedded App — sensors and LCD with Modest IoT Nano-framework.
  *
- * @author Angel Velasquez
- * @date March 23, 2025
+ * @author Metasoft
+ * @date June 2026
  * @version 0.1
  */
 
 /*
- * This file is part of the Veyra Embedded App project.
- * Copyright (c) 2025 Angel Velasquez
+ * Veyra Embedded App
+ * Copyright (c) 2026 Metasoft
  *
- * Licensed under the Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0).
- * You may use, copy, and distribute this software in its original, unmodified form, provided
- * you give appropriate credit to the original author (Angel Velasquez) and include this notice.
- * Modifications, adaptations, or derivative works are not permitted.
- *
- * Full license text: https://creativecommons.org/licenses/by-nd/4.0/legalcode
+ * Developed by Metasoft for the Veyra health-monitoring device.
+ * Built on the Modest IoT Nano-framework (C++ Edition) by Angel Velasquez.
+ * Framework source files retain their original copyright and CC BY-ND 4.0 license.
  */
 
 #include "ModestIoT.h"
