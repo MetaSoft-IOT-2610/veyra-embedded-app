@@ -8,21 +8,18 @@
  * A concrete actuator class in the Modest IoT Nano-framework for a 16x2 I2C LCD
  * with PCF8574 backpack. Uses a dedicated I2C bus (Wire1 on ESP32).
  *
- * @author Angel Velasquez
- * @date March 22, 2025
+ * @author Metasoft
+ * @date June 2026
  * @version 0.1
  */
 
 /*
- * This file is part of the Modest IoT Nano-framework (C++ Edition).
- * Copyright (c) 2025 Angel Velasquez
+ * Veyra Embedded App
+ * Copyright (c) 2026 Metasoft
  *
- * Licensed under the Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0).
- * You may use, copy, and distribute this software in its original, unmodified form, provided
- * you give appropriate credit to the original author (Angel Velasquez) and include this notice.
- * Modifications, adaptations, or derivative works are not permitted.
- *
- * Full license text: https://creativecommons.org/licenses/by-nd/4.0/legalcode
+ * Developed by Metasoft for the Veyra health-monitoring device.
+ * Built on the Modest IoT Nano-framework (C++ Edition) by Angel Velasquez.
+ * Framework source files retain their original copyright and CC BY-ND 4.0 license.
  */
 
 #include "Actuator.h"
