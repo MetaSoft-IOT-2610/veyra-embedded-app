@@ -24,20 +24,41 @@ VeyraDevice device;
 void setup() {
     Serial.begin(115200);
     delay(500);
+
+    Serial.println();
+    Serial.println(F("=== Inicio Veyra ==="));
+
     device.begin();
 
     if (!device.getMax30102().isInitialized()) {
-        Serial.println("MAX30102: sensor not detected on I2C (SDA33 SCL32)");
+        Serial.println(F("Sensor pulso: no detectado al arrancar"));
+    } else {
+        for (int i = 0; i < 30; i++) {
+            device.update();
+            delay(50);
+        }
+        Serial.println(F("Sensor pulso: listo - apoya el dedo para medir"));
     }
+
     if (!device.getLcd().isInitialized()) {
-        Serial.println("LCD1602: display not detected on I2C (SDA21 SCL22)");
+        Serial.println(F("Pantalla LCD: no detectada (SDA21 SCL22)"));
+    } else {
+        Serial.println(F("Pantalla LCD: lista"));
     }
-    Serial.printf(
-        "GPS UART: %ld baud, %lu bytes at startup (GPS TX -> ESP32 GPIO%d)\n",
-        device.getNeo6m().getActiveBaudRate(),
-        device.getNeo6m().getBytesReceived(),
-        VeyraDevice::GPS_RX_PIN
-    );
+
+    if (device.getNeo6m().isReceivingData()) {
+        Serial.println(F("GPS: recibiendo datos"));
+    } else {
+        Serial.println(F("GPS: sin datos al arrancar - normal en interiores"));
+    }
+
+    if (device.getEdgeHttp().isConnected()) {
+        Serial.printf("Servidor edge: conectado (%s)\n", device.getEdgeHttp().getDeviceId());
+    } else {
+        Serial.println(F("Servidor edge: sin Wi-Fi - revisa secrets.h"));
+    }
+
+    Serial.println(F("===================="));
 }
 
 void loop() {
