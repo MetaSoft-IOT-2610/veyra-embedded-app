@@ -54,7 +54,7 @@ private:
 
     static const int SMOOTH_WINDOW_SIZE = 7;
     static const int HR_OUTLIER_DELTA = 18;
-    static const int SPO2_OUTLIER_DELTA = 3;
+    static const int SPO2_OUTLIER_DELTA = 5;
 
     static int calibrateHeartRate(int rawHr, uint32_t irVariation);
     static int calibrateSpO2(int rawSpO2);
