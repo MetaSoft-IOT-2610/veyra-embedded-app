@@ -241,8 +241,6 @@ void formatLcdPage(
     }
 }
 
-}
-
 EdgeHttpClient* g_edgeHttpClient = nullptr;
 
 void suspendWifiForMax30102() {
@@ -253,6 +251,9 @@ void suspendWifiForMax30102() {
 
 bool resumeWifiForMax30102() {
     return g_edgeHttpClient != nullptr && g_edgeHttpClient->resumeWifi();
+}
+
+}
 
 VeyraDevice::VeyraDevice(
     int lm35Pin,
