@@ -69,7 +69,11 @@ void Lcd1602::setLine(uint8_t row, const char* text) {
         return;
     }
 
-    strncpy(lines[row], text, COLS);
+    memset(lines[row], ' ', COLS);
+    const size_t length = strnlen(text, COLS);
+    if (length > 0) {
+        memcpy(lines[row], text, length);
+    }
     lines[row][COLS] = '\0';
 }
 

@@ -21,41 +21,42 @@ Acceptance criteria use the **Given-When-Then** format.
 
 - **As a** Device User, **I want** ambient temperature from the LM35, **so that** I know the environmental temperature.
 - **Acceptance Criteria**:
-  - **Given** the LM35 is in free air on GPIO 34, **when** the device runs, **then** Serial shows `Ambient (LM35): XX.X C`.
-  - **Given** the reading is below 30 °C, **when** status is refreshed, **then** body temperature is shown as `--`.
-  - **Given** the reading reaches ≥ 30 °C (valid skin contact), **when** status is refreshed, **then** Serial shows `Body (LM35)` only and does not print the ambient line.
+  - **Given** the LM35 is in free air on GPIO 34, **when** the device runs, **then** Serial shows `Temperatura ambiente: XX.X C`.
+  - **Given** the reading is below 30 °C, **when** status is refreshed, **then** Serial hints to place the sensor on skin and the LCD shows `Temp: XX.X C`.
+  - **Given** the reading reaches ≥ 30 °C (valid skin contact), **when** status is refreshed, **then** Serial shows `Temperatura piel` only.
 
 ### US02: Monitor body temperature
 
 - **As a** Device User, **I want** body temperature when the LM35 touches my skin, **so that** I can estimate skin/body temperature.
 - **Acceptance Criteria**:
-  - **Given** the LM35 is held against skin until the reading reaches ≥ 30 °C, **when** status refreshes, **then** Serial shows `Body (LM35): XX.X C`.
-  - **Given** the LCD is on page 1, **when** body temperature is valid, **then** line 0 shows `Body:XX.XC`.
-  - **Given** body temperature is valid, **when** the LCD is on page 2, **then** line 0 shows `Skin contact OK` instead of ambient.
+  - **Given** the LM35 is held against skin until the reading reaches ≥ 30 °C, **when** status refreshes, **then** Serial shows `Temperatura piel: XX.X C`.
+  - **Given** body temperature is valid, **when** the LCD refreshes, **then** line 0 shows `Piel: XX.X C`.
 
 ### US03: Monitor heart rate and SpO2
 
 - **As a** Device User, **I want** heart rate and blood oxygen from the MAX30102, **so that** I can check basic vitals.
 - **Acceptance Criteria**:
-  - **Given** my finger covers the MAX30102 window with light pressure, **when** I hold still for several seconds, **then** Serial shows `Heart rate` and `SpO2` lines.
+  - **Given** my finger covers the MAX30102 window with light pressure, **when** I hold still for several seconds, **then** Serial shows `Pulso` and `Oxigeno (SpO2)` lines.
+  - **Given** heart rate is valid but SpO2 is still stabilizing, **when** status refreshes, **then** Serial shows `Oxigeno (SpO2): midiendo...` and the LCD shows `Oxig: ...`.
   - **Given** the signal is unstable, **when** readings are processed, **then** smoothed values are shown (not raw spikes).
-  - **Given** no valid HR/SpO2 yet, **when** status refreshes, **then** Serial shows a PPG diagnostic line (`waiting for finger`, `measuring pulse`, `saturated`, or `sensor not detected`).
+  - **Given** no valid HR/SpO2 yet, **when** status refreshes, **then** Serial shows a short Spanish hint (`apoya el dedo`, `midiendo`, `presiona menos`, etc.).
 
 ### US04: Monitor GPS status
 
-- **As a** Device User, **I want** GPS status on Serial and LCD, **so that** I know whether location is available.
+- **As a** Device User, **I want** GPS status on Serial, **so that** I know whether location is available.
 - **Acceptance Criteria**:
-  - **Given** the GPS module is wired (TX → GPIO 17), **when** no fix is available, **then** status shows `searching fix` or `no data`.
-  - **Given** NMEA is received but there is no fix, **when** GSV sentences are parsed, **then** status may show satellites in view (e.g. `searching fix (0 used, 4 in view)`).
-  - **Given** a valid fix outdoors, **when** status refreshes, **then** latitude and longitude appear on Serial and rotating LCD pages.
+  - **Given** the GPS module is wired (TX → GPIO 17), **when** no fix is available, **then** Serial shows `buscando senal` or `sin datos`.
+  - **Given** NMEA is received but there is no fix, **when** GSV sentences are parsed, **then** status may show satellites in view (e.g. `0 en uso, 4 visibles`).
+  - **Given** a valid fix outdoors, **when** status refreshes, **then** latitude and longitude appear on Serial.
   - **Given** the module uses a non-default baud rate, **when** the device boots, **then** `Neo6m` autodetects among 9600, 115200, and 4800 baud.
 
 ### US05: Continuous LCD feedback
 
-- **As a** Device User, **I want** the LCD to update regularly, **so that** I always see current status without waiting for a sensor event.
+- **As a** Device User, **I want** the LCD to update regularly with a simple fixed layout, **so that** I always see current status without reading rotating pages.
 - **Acceptance Criteria**:
   - **Given** the device is running, **when** at least 2 seconds elapse, **then** the LCD content updates even if no new GPS fix or PPG reading occurred.
-  - **Given** the device is running, **when** multiple pages are configured, **then** the LCD rotates through vitals, temperature/GPS, and GPS detail pages.
+  - **Given** vitals are active, **when** the LCD refreshes, **then** line 0 shows pulse and line 1 shows oxygen (or `Oxig: ...` while measuring).
+  - **Given** a line is shorter than 16 characters, **when** it is written to the LCD, **then** remaining positions are blank spaces (no block characters).
 
 ---
 
@@ -67,7 +68,7 @@ Acceptance criteria use the **Given-When-Then** format.
 - **Acceptance Criteria**:
   - **Given** `veyra-embedded-app.ino`, **when** I inspect `loop()`, **then** it only calls `device.update()`.
   - **Given** `VeyraDevice` extends `Device`, **when** sensors emit events, **then** they propagate through `Sensor::on()` to the device handler.
-  - **Given** the current application, **when** `VeyraDevice::on()` is called, **then** it is a no-op; Serial/LCD refresh is driven by the 2 s timer in `refreshStatus()`, not by event handlers.
+  - **Given** PPG, temperature, or GPS events, **when** `VeyraDevice::on()` runs, **then** telemetry is published to the edge (debounced).
 
 ### US07: Sensor event propagation
 
@@ -87,11 +88,18 @@ Acceptance criteria use the **Given-When-Then** format.
 
 ### US09: Startup diagnostics
 
-- **As a** Device Maker, **I want** startup messages for missing I2C devices and GPS UART status, **so that** I can debug wiring quickly.
+- **As a** Device Maker, **I want** startup messages for missing I2C devices and connectivity status, **so that** I can debug wiring quickly.
 - **Acceptance Criteria**:
-  - **Given** MAX30102 is not detected, **when** `setup()` completes, **then** Serial prints a MAX30102 I2C warning.
-  - **Given** the LCD is not detected, **when** `setup()` completes, **then** Serial prints an LCD I2C warning.
-  - **Given** GPS UART was probed at boot, **when** `setup()` completes, **then** Serial prints baud rate and byte count.
+  - **Given** MAX30102 is not detected, **when** `setup()` completes, **then** Serial prints a pulse-sensor warning in Spanish.
+  - **Given** the LCD is not detected, **when** `setup()` completes, **then** Serial prints an LCD warning.
+  - **Given** edge Wi-Fi is configured, **when** `setup()` completes, **then** Serial prints edge connection status.
+
+### US10: Edge telemetry
+
+- **As a** Device Maker, **I want** the firmware to POST vitals and diagnostics to veyra-edge, **so that** readings are buffered locally at the gateway.
+- **Acceptance Criteria**:
+  - **Given** valid `secrets.h`, **when** vitals events fire, **then** the device POSTs JSON with `X-Device-Id` and `X-API-Key` headers.
+  - **Given** a telemetry payload, **when** inspected, **then** it may include `heart_rate`, `oxygen_saturation`, `temperature`, `ambient_temperature`, GPS fields, and `diagnostics`.
 
 ---
 
