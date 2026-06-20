@@ -16,9 +16,9 @@ Embedded health-monitoring application for ESP32 developed by **Metasoft** for t
 | **MAX30102** | Heart rate and SpO2 (PPG) |
 | **LCD 16×2 I2C** | Live status display |
 
-Values are also reported over Serial at 115200 baud.
+Values are also reported over Serial at 115200 baud and, when configured, published to the **Veyra edge service** over **HTTP/Wi-Fi**.
 
-The design is object-oriented and CQRS-inspired: sensors emit framework events, `VeyraDevice` orchestrates polling and display, and the LCD actuator responds to commands. **Serial and LCD refresh run on a 2 s timer** in `VeyraDevice::refreshStatus()`; sensors still emit events for framework extensibility, but `VeyraDevice::on()` is currently a no-op.
+The design is object-oriented and CQRS-inspired: sensors emit framework events, `VeyraDevice` orchestrates polling and display, and the LCD actuator responds to commands. **Serial and LCD refresh run on a 2 s timer** in `VeyraDevice::refreshStatus()`. **Telemetry HTTP posts** are triggered from `VeyraDevice::on()` when PPG or temperature events fire (debounced by `TELEMETRY_INTERVAL_MS`).
 
 ## Sensor responsibilities
 
@@ -37,7 +37,7 @@ The MAX30102 does **not** measure temperature in this project.
 - LM35 linear temperature sensor
   - **VCC** → 3.3 V
   - **GND** → GND
-  - **OUT** → GPIO **4**
+  - **OUT** → GPIO **34** (ADC1; required while Wi‑Fi is active — GPIO 4 is ADC2 and reads 0 with Wi‑Fi on)
 - NEO-6M GPS module
   - **VCC** → 3.3 V
   - **GND** → GND
@@ -46,8 +46,9 @@ The MAX30102 does **not** measure temperature in this project.
 - GY-MAX30102 pulse oximeter (I2C, no INT pin)
   - **VCC** → 3.3 V
   - **GND** → GND
-  - **SCL** → GPIO **32**
-  - **SDA** → GPIO **33**
+  - **SDA** → GPIO **19**
+  - **SCL** → GPIO **18**
+  - Avoid GPIO **32/33** (ADC2 conflicts with Wi‑Fi on ESP32)
 - LCD 16×2 I2C (PCF8574 backpack)
   - **VCC** → 3.3 V
   - **GND** → GND
@@ -61,7 +62,53 @@ Use short jumper wires; secure GND and power on every module.
 
 - Arduino IDE with ESP32 board support (Espressif)
 - Serial Monitor at **115200 baud**
-- No external Arduino libraries required
+- **Wi-Fi** and **HTTPClient** from the ESP32 Arduino core (no extra libraries)
+- Copy `secrets.example.h` to `secrets.h` (local secrets, gitignored) before flashing
+
+## Edge connectivity (HTTP)
+
+The firmware POSTs sensor readings to `veyra-edge`. Node identity goes in HTTP headers (`X-Device-Id`, `X-API-Key` from `secrets.h`). The **gateway** adds `device_type` from its registry when syncing to the cloud. Nursing-home and resident correlation is resolved by the **backend** from `deviceId`.
+
+| Firmware reading | JSON field | Sent when |
+|------------------|------------|-----------|
+| Heart rate (MAX30102) | `heart_rate` | Valid smoothed BPM |
+| SpO2 (MAX30102) | `oxygen_saturation` | Valid smoothed SpO2 |
+| Body temp (LM35) | `temperature` | Skin contact (≥ 30 °C) |
+
+**Headers:** `Content-Type: application/json`, `X-Device-Id: <DEVICE_ID>`, `X-API-Key: <API_KEY>`
+
+**Body:** vitals only (no tenant / cloud fields).
+
+### Configuration
+
+`secrets.h` is **gitignored**. Only `secrets.example.h` is committed.
+
+```sh
+copy secrets.example.h secrets.h   # Windows
+# cp secrets.example.h secrets.h   # Linux / macOS
+```
+
+| Define | Purpose |
+|--------|---------|
+| `WIFI_SSID` / `WIFI_PASSWORD` | Local network shared with the edge server |
+| `GATEWAY_TELEMETRY_URL` | e.g. `http://192.168.1.100:5000/api/v1/monitoring/data-records` |
+| `DEVICE_ID` | Node id — must match registration at the edge |
+| `API_KEY` | Must match the key provisioned at the edge |
+| `TELEMETRY_INTERVAL_MS` | Minimum gap between POSTs (default 5000 ms) |
+
+### Provisioning at the edge (required once per node)
+
+```http
+POST http://<edge-host>:5000/api/v1/devices
+
+{
+  "device_id": "band-001",
+  "api_key": "your-api-key",
+  "device_type": "VITAL_SIGNS"
+}
+```
+
+Use the same `device_id` and `api_key` as `DEVICE_ID` and `API_KEY` in `secrets.h`.
 
 ## Flashing (Arduino IDE)
 
@@ -74,7 +121,7 @@ Use short jumper wires; secure GND and power on every module.
 
 | Layer | Files | Maintainer |
 |-------|-------|------------|
-| **Veyra application** | `VeyraDevice`, `veyra-embedded-app.ino` | Metasoft |
+| **Veyra application** | `VeyraDevice`, `EdgeHttpClient`, `secrets.h` (local), `secrets.example.h`, `veyra-embedded-app.ino` | Metasoft |
 | **Sensor drivers & LCD** | `Lm35`, `Neo6m`, `Max30102`, `Lcd1602` | Metasoft |
 | **Framework core** | `Sensor`, `Actuator`, `Device`, `EventHandler`, `CommandHandler`, `ModestIoT.h` | Angel Velasquez (CC BY-ND 4.0) |
 | **HR/SpO2 algorithm** | `spo2_algorithm` | Maxim Integrated |
@@ -83,6 +130,9 @@ Use short jumper wires; secure GND and power on every module.
 veyra-embedded-app/
 ├── veyra-embedded-app.ino   # Entry point (setup + device.update())
 ├── VeyraDevice.h / .cpp     # Application device
+├── EdgeHttpClient.h / .cpp  # HTTP telemetry client
+├── secrets.example.h        # Template (committed)
+├── secrets.h                # Your secrets (gitignored)
 ├── Lm35.h / .cpp            # Temperature sensor
 ├── Neo6m.h / .cpp           # GPS sensor
 ├── Max30102.h / .cpp        # Pulse oximeter (HR / SpO2)
@@ -143,7 +193,7 @@ void loop() {
 
 **I2C buses:**
 
-- `Max30102` → **Wire** (SDA 33, SCL 32)
+- `Max30102` → **Wire** (SDA 19, SCL 18)
 - `Lcd1602` → **Wire1** (SDA 21, SCL 22)
 
 ### Serial status output
