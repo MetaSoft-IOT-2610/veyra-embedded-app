@@ -130,7 +130,7 @@ void maxim_heart_rate_and_oxygen_saturation(
         an_ir_valley_locs[k] = 0;
     }
 
-    maxim_find_peaks(an_ir_valley_locs, &n_npks, an_x, BUFFER_SIZE, n_th1, 4, 15);
+    maxim_find_peaks(an_ir_valley_locs, &n_npks, an_x, BUFFER_SIZE, n_th1, HR_MIN_PEAK_DISTANCE, 15);
     n_peak_interval_sum = 0;
     if (n_npks >= 2) {
         for (k = 1; k < n_npks; k++) {
