@@ -21,7 +21,7 @@ Acceptance criteria use the **Given-When-Then** format.
 
 - **As a** Device User, **I want** ambient temperature from the LM35, **so that** I know the environmental temperature.
 - **Acceptance Criteria**:
-  - **Given** the LM35 is in free air on GPIO 4, **when** the device runs, **then** Serial shows `Ambient (LM35): XX.X C`.
+  - **Given** the LM35 is in free air on GPIO 34, **when** the device runs, **then** Serial shows `Ambient (LM35): XX.X C`.
   - **Given** the reading is below 30 °C, **when** status is refreshed, **then** body temperature is shown as `--`.
   - **Given** the reading reaches ≥ 30 °C (valid skin contact), **when** status is refreshed, **then** Serial shows `Body (LM35)` only and does not print the ambient line.
 

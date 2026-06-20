@@ -27,6 +27,7 @@
 #include "Neo6m.h"
 #include "Max30102.h"
 #include "Lcd1602.h"
+#include "EdgeHttpClient.h"
 
 class VeyraDevice : public Device {
 private:
@@ -34,6 +35,7 @@ private:
     Neo6m neo6m;
     Max30102 max30102;
     Lcd1602 lcd;
+    EdgeHttpClient edgeHttp;
 
     unsigned long lastStatusRefreshMs;
     unsigned long lastTemperatureReadMs;
@@ -46,13 +48,14 @@ private:
     void updateGps();
     void updateMax30102();
     void refreshStatus();
+    void maybePublishTelemetry();
 
 public:
-    static const int LM35_PIN = 4;
+    static const int LM35_PIN = 34;
     static const int GPS_RX_PIN = 17;
     static const int GPS_TX_PIN = 16;
-    static const int MAX30102_SDA_PIN = 33;
-    static const int MAX30102_SCL_PIN = 32;
+    static const int MAX30102_SDA_PIN = 19;
+    static const int MAX30102_SCL_PIN = 18;
     static const int LCD_SDA_PIN = 21;
     static const int LCD_SCL_PIN = 22;
 
@@ -82,6 +85,7 @@ public:
     Neo6m& getNeo6m();
     Max30102& getMax30102();
     Lcd1602& getLcd();
+    EdgeHttpClient& getEdgeHttp();
 };
 
 #endif // VEYRA_DEVICE_H
