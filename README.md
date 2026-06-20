@@ -2,7 +2,7 @@
 
 **Author**: Metasoft  
 **Project**: Veyra health-monitoring firmware  
-**Version**: 0.2.1  
+**Version**: 0.3.0  
 **Date**: June 2026
 
 ## Overview
