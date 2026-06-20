@@ -67,7 +67,9 @@ Use short jumper wires; secure GND and power on every module.
 
 ## Edge connectivity (HTTP)
 
-The firmware POSTs sensor readings to `veyra-edge`. Node identity goes in HTTP headers (`X-Device-Id`, `X-API-Key` from `secrets.h`). The **gateway** adds `device_type` from its registry when syncing to the cloud. Nursing-home and resident correlation is resolved by the **backend** from `deviceId`.
+The firmware authenticates against `veyra-edge` with `DEVICE_ID` plus the Wi-Fi
+MAC address read at runtime, then POSTs sensor readings with a Bearer token.
+The **gateway** adds `device_type` from its registry when syncing to the cloud.
 
 | Firmware reading | JSON field | Sent when |
 |------------------|------------|-----------|
@@ -79,7 +81,9 @@ The firmware POSTs sensor readings to `veyra-edge`. Node identity goes in HTTP h
 | GPS status | `satellite_count`, `satellites_in_view` | NMEA received |
 | Sensor health | `diagnostics` | Every POST (per-sensor status object) |
 
-**Headers:** `Content-Type: application/json`, `X-Device-Id: <DEVICE_ID>`, `X-API-Key: <API_KEY>`
+**Sign-in:** `POST /api/v1/auth/sign-in` with `X-Device-Id` and `X-Device-Mac` (MAC from `WiFi.macAddress()`)
+
+**Telemetry headers:** `Content-Type: application/json`, `Authorization: Bearer <access_token>`
 
 **Body:** vitals only (no tenant / cloud fields).
 
@@ -95,10 +99,13 @@ copy secrets.example.h secrets.h   # Windows
 | Define | Purpose |
 |--------|---------|
 | `WIFI_SSID` / `WIFI_PASSWORD` | Local network shared with the edge server |
+| `GATEWAY_SIGN_IN_URL` | e.g. `http://192.168.1.100:5000/api/v1/auth/sign-in` |
 | `GATEWAY_TELEMETRY_URL` | e.g. `http://192.168.1.100:5000/api/v1/monitoring/data-records` |
 | `DEVICE_ID` | Node id — must match registration at the edge |
-| `API_KEY` | Must match the key provisioned at the edge |
 | `TELEMETRY_INTERVAL_MS` | Minimum gap between POSTs (default 5000 ms) |
+
+Register the band MAC once in `nodes.seed.json` on the edge (read it from Serial
+on first boot: `WiFi.macAddress()`).
 
 ### Provisioning at the edge (required once per node)
 
@@ -107,12 +114,12 @@ POST http://<edge-host>:5000/api/v1/devices
 
 {
   "device_id": "band-001",
-  "api_key": "your-api-key",
+  "mac_address": "AA:BB:CC:DD:EE:FF",
   "device_type": "VITAL_SIGNS"
 }
 ```
 
-Use the same `device_id` and `api_key` as `DEVICE_ID` and `API_KEY` in `secrets.h`.
+Use the same `device_id` as `DEVICE_ID` in `secrets.h` and the band's Wi-Fi MAC.
 
 ## Flashing (Arduino IDE)
 
