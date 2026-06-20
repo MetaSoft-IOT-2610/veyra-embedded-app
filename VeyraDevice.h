@@ -39,7 +39,6 @@ private:
 
     unsigned long lastStatusRefreshMs;
     unsigned long lastTemperatureReadMs;
-    uint8_t lcdPage;
 
     static const unsigned long STATUS_REFRESH_MS = 2000;
     static const unsigned long TEMPERATURE_READ_INTERVAL_MS = 1000;
