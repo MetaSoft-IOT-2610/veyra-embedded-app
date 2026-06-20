@@ -67,17 +67,21 @@ struct SensorDiagnostics {
 /**
  * @brief Connects to Wi-Fi and POSTs JSON payloads to the edge monitoring API.
  *
- * Identifies the node via HTTP headers (X-Device-Id, X-API-Key from secrets.h).
- * The JSON body carries sensor readings; the gateway resolves cloud identity.
+ * Identifies the node via sign-in (X-Device-Id, X-Device-Mac) then Bearer token
+ * on telemetry POSTs. The JSON body carries sensor readings only.
  */
 class EdgeHttpClient {
 private:
     bool wifiReady;
     bool wifiResumePending;
     unsigned long lastPublishMs;
+    String accessToken;
 
     bool connectWifi();
-    bool postJson(const String& body, int& responseCode);
+    bool signIn();
+    bool ensureSignedIn();
+    static bool extractAccessToken(const String& responseBody, String& tokenOut);
+    bool postJson(const String& body, int& responseCode, bool allowRetry);
     static void appendDiagnostics(String& body, bool& first, const SensorDiagnostics& diagnostics);
 
 public:
@@ -91,6 +95,9 @@ public:
 
     /** @return true when Wi-Fi is connected. */
     bool isConnected() const;
+
+    /** @return true when the edge sign-in returned an access token. */
+    bool isAuthenticated() const;
 
     /**
      * @brief Turns Wi-Fi off so ADC2 GPIOs (32/33) can be used for I2C.

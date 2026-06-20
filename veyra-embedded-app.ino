@@ -52,8 +52,10 @@ void setup() {
         Serial.println(F("GPS: sin datos al arrancar - normal en interiores"));
     }
 
-    if (device.getEdgeHttp().isConnected()) {
-        Serial.printf("Servidor edge: conectado (%s)\n", device.getEdgeHttp().getDeviceId());
+    if (device.getEdgeHttp().isAuthenticated()) {
+        Serial.printf("Servidor edge: autenticado (%s)\n", device.getEdgeHttp().getDeviceId());
+    } else if (device.getEdgeHttp().isConnected()) {
+        Serial.println(F("Servidor edge: Wi-Fi ok, sign-in fallido - revisa secrets.h y nodes.seed.json"));
     } else {
         Serial.println(F("Servidor edge: sin Wi-Fi - revisa secrets.h"));
     }

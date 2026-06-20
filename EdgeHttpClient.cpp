@@ -4,7 +4,7 @@
  *
  * @author Metasoft
  * @date June 2026
- * @version 0.1
+ * @version 0.2
  */
 
 #include "EdgeHttpClient.h"
@@ -14,7 +14,7 @@
 #include <WiFi.h>
 
 EdgeHttpClient::EdgeHttpClient()
-    : wifiReady(false), wifiResumePending(false), lastPublishMs(0) {}
+    : wifiReady(false), wifiResumePending(false), lastPublishMs(0), accessToken("") {}
 
 bool EdgeHttpClient::connectWifi() {
     if (WiFi.status() == WL_CONNECTED) {
@@ -36,6 +36,70 @@ bool EdgeHttpClient::connectWifi() {
     return true;
 }
 
+bool EdgeHttpClient::extractAccessToken(const String& responseBody, String& tokenOut) {
+    const char* marker = "\"access_token\":\"";
+    const int start = responseBody.indexOf(marker);
+    if (start < 0) {
+        return false;
+    }
+
+    const int valueStart = start + static_cast<int>(strlen(marker));
+    const int valueEnd = responseBody.indexOf('"', valueStart);
+    if (valueEnd < 0) {
+        return false;
+    }
+
+    tokenOut = responseBody.substring(valueStart, valueEnd);
+    return tokenOut.length() > 0;
+}
+
+bool EdgeHttpClient::signIn() {
+    if (!connectWifi()) {
+        wifiReady = false;
+        return false;
+    }
+    wifiReady = true;
+
+    HTTPClient http;
+    http.setTimeout(HTTP_TIMEOUT_MS);
+    http.begin(GATEWAY_SIGN_IN_URL);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-Device-Id", DEVICE_ID);
+    http.addHeader("X-Device-Mac", WiFi.macAddress());
+
+    const int responseCode = http.POST("{}");
+    const String responseBody = http.getString();
+    http.end();
+
+    if (responseCode < 200 || responseCode >= 300) {
+        accessToken = "";
+        Serial.printf(
+            "Servidor edge: sign-in fallido (%d) %s\n",
+            responseCode,
+            responseBody.c_str()
+        );
+        return false;
+    }
+
+    String token;
+    if (!extractAccessToken(responseBody, token)) {
+        accessToken = "";
+        Serial.println(F("Servidor edge: sign-in sin access_token"));
+        return false;
+    }
+
+    accessToken = token;
+    Serial.printf("Servidor edge: sign-in exitoso (%s)\n", DEVICE_ID);
+    return true;
+}
+
+bool EdgeHttpClient::ensureSignedIn() {
+    if (accessToken.length() > 0) {
+        return true;
+    }
+    return signIn();
+}
+
 bool EdgeHttpClient::begin() {
     wifiReady = connectWifi();
     if (!wifiReady) {
@@ -43,11 +107,16 @@ bool EdgeHttpClient::begin() {
     }
 
     Serial.printf("Servidor edge: Wi-Fi conectado (%s)\n", DEVICE_ID);
-    return true;
+    Serial.printf("MAC Wi-Fi: %s\n", WiFi.macAddress().c_str());
+    return signIn();
 }
 
 bool EdgeHttpClient::isConnected() const {
     return wifiReady && WiFi.status() == WL_CONNECTED;
+}
+
+bool EdgeHttpClient::isAuthenticated() const {
+    return accessToken.length() > 0;
 }
 
 bool EdgeHttpClient::suspendWifi() {
@@ -57,6 +126,7 @@ bool EdgeHttpClient::suspendWifi() {
     }
     WiFi.mode(WIFI_OFF);
     delay(1);
+    accessToken = "";
     return wifiResumePending;
 }
 
@@ -67,38 +137,56 @@ bool EdgeHttpClient::resumeWifi() {
 
     wifiResumePending = false;
     wifiReady = connectWifi();
-    return wifiReady;
+    if (wifiReady) {
+        return signIn();
+    }
+    return false;
 }
 
 const char* EdgeHttpClient::getDeviceId() const {
     return DEVICE_ID;
 }
 
-bool EdgeHttpClient::postJson(const String& body, int& responseCode) {
+bool EdgeHttpClient::postJson(const String& body, int& responseCode, bool allowRetry) {
     if (!connectWifi()) {
         wifiReady = false;
         return false;
     }
     wifiReady = true;
 
+    if (!ensureSignedIn()) {
+        return false;
+    }
+
     HTTPClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
     http.begin(GATEWAY_TELEMETRY_URL);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-Device-Id", DEVICE_ID);
-    http.addHeader("X-API-Key", API_KEY);
+    http.addHeader("Authorization", String("Bearer ") + accessToken);
 
     responseCode = http.POST(body);
+    const String responseBody = http.getString();
     const bool ok = responseCode >= 200 && responseCode < 300;
+    http.end();
 
     if (ok) {
         Serial.println(F("Servidor edge: datos enviados"));
-    } else {
-        Serial.printf("Servidor edge: error al enviar (%d) %s\n", responseCode, http.getString().c_str());
+        return true;
     }
 
-    http.end();
-    return ok;
+    if (responseCode == 401 && allowRetry) {
+        accessToken = "";
+        if (signIn()) {
+            return postJson(body, responseCode, false);
+        }
+    }
+
+    Serial.printf(
+        "Servidor edge: error al enviar (%d) %s\n",
+        responseCode,
+        responseBody.c_str()
+    );
+    return false;
 }
 
 void EdgeHttpClient::appendDiagnostics(String& body, bool& first, const SensorDiagnostics& diagnostics) {
@@ -164,6 +252,11 @@ void EdgeHttpClient::appendDiagnostics(String& body, bool& first, const SensorDi
     body += diagnostics.wifiConnected ? "true" : "false";
     body += F(",\"rssi_dbm\":");
     body += String(diagnostics.wifiRssiDbm);
+    if (diagnostics.wifiConnected) {
+        body += F(",\"mac_address\":\"");
+        body += WiFi.macAddress();
+        body += F("\"");
+    }
     body += F("}}");
 }
 
@@ -174,6 +267,10 @@ bool EdgeHttpClient::publishSnapshot(const TelemetrySnapshot& snapshot, const Se
     }
 
     if (!wifiReady && !begin()) {
+        return false;
+    }
+
+    if (!ensureSignedIn()) {
         return false;
     }
 
@@ -230,7 +327,7 @@ bool EdgeHttpClient::publishSnapshot(const TelemetrySnapshot& snapshot, const Se
     body += "}";
 
     int responseCode = 0;
-    const bool ok = postJson(body, responseCode);
+    const bool ok = postJson(body, responseCode, true);
     lastPublishMs = now;
     return ok;
 }
