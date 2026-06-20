@@ -49,7 +49,8 @@ static const uint8_t EXPECTED_PART_ID = 0x15;
 static const uint8_t FIFO_CONFIG_VALUE = 0x4F;
 static const uint8_t MODE_SPO2_VALUE = 0x03;
 static const uint8_t SPO2_CONFIG_VALUE = 0x27;
-static const uint8_t LED_PULSE_AMPLITUDE = 0x50; // ~16 mA; lower if IR clips at 262143 when pressing hard.
+static const uint8_t LED_RED_AMPLITUDE = 0x60;  // Red LED slightly higher for stable SpO2 ratio.
+static const uint8_t LED_IR_AMPLITUDE = 0x50;   // ~16 mA IR; lower if ADC clips at 262143.
 static const unsigned long I2C_READ_TIMEOUT_MS = 50;
 static const unsigned long REPORT_INTERVAL_MS = 1000;
 static const int MIN_FINGER_IR = 5000;
@@ -62,7 +63,9 @@ static const int SAMPLE_SHIFT = FreqS;
 namespace {
 // Post-processing after Maxim MAXREFDES117 algorithm (peak distance in spo2_algorithm.h).
 constexpr int HR_HARMONIC_CORRECT_MIN = 118;
-constexpr int SPO2_CALIBRATION_OFFSET = -3;
+constexpr int SPO2_CALIBRATION_OFFSET = -1;
+constexpr int SPO2_MIN_VALID = 65;
+constexpr int SPO2_MAX_VALID = 100;
 constexpr uint32_t TARGET_IR_AC_MIN = 600;
 constexpr uint32_t TARGET_IR_AC_MAX = 50000;
 }
@@ -408,9 +411,9 @@ bool Max30102::configure() {
     writeRegister(REG_FIFO_CONFIG, FIFO_CONFIG_VALUE);
     writeRegister(REG_MODE_CONFIG, MODE_SPO2_VALUE);
     writeRegister(REG_SPO2_CONFIG, SPO2_CONFIG_VALUE);
-    writeRegister(REG_LED1_PA, LED_PULSE_AMPLITUDE);
-    writeRegister(REG_LED2_PA, LED_PULSE_AMPLITUDE);
-    writeRegister(REG_PILOT_PA, LED_PULSE_AMPLITUDE);
+    writeRegister(REG_LED1_PA, LED_RED_AMPLITUDE);
+    writeRegister(REG_LED2_PA, LED_IR_AMPLITUDE);
+    writeRegister(REG_PILOT_PA, LED_IR_AMPLITUDE);
 
     if (!flushFifo()) {
         return false;
@@ -581,11 +584,11 @@ int Max30102::calibrateSpO2(int rawSpO2) {
     }
 
     int calibrated = rawSpO2 + SPO2_CALIBRATION_OFFSET;
-    if (calibrated < 70) {
-        calibrated = 70;
+    if (calibrated < SPO2_MIN_VALID) {
+        calibrated = SPO2_MIN_VALID;
     }
-    if (calibrated > 100) {
-        calibrated = 100;
+    if (calibrated > SPO2_MAX_VALID) {
+        calibrated = SPO2_MAX_VALID;
     }
     return calibrated;
 }
@@ -711,7 +714,7 @@ void Max30102::calculateMetrics() {
     }
 
     bool rawHrOk = (hrValid != 0 && heartRate >= 40 && heartRate <= 200);
-    bool rawSpO2Ok = (spo2Valid != 0 && spo2 >= 70 && spo2 <= 100);
+    bool rawSpO2Ok = (spo2Valid != 0 && spo2 >= SPO2_MIN_VALID && spo2 <= SPO2_MAX_VALID);
 
     if (rawHrOk) {
         int smoothedHr = 0;
@@ -738,14 +741,14 @@ void Max30102::calculateMetrics() {
         if (smoothSpO2(static_cast<int>(spo2), smoothedSpO2)) {
             lastSpO2 = smoothedSpO2;
             lastSpO2Valid = true;
-        } else if (spo2SmoothCount >= 2) {
+        } else if (spo2SmoothCount >= 1) {
             lastSpO2 = averageSamples(spo2SmoothBuffer, spo2SmoothCount);
             lastSpO2Valid = true;
         } else {
             lastSpO2Valid = false;
             lastSpO2 = 0;
         }
-    } else if (spo2SmoothCount >= 2) {
+    } else if (spo2SmoothCount >= 1) {
         lastSpO2 = averageSamples(spo2SmoothBuffer, spo2SmoothCount);
         lastSpO2Valid = true;
     } else {

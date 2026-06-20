@@ -2,7 +2,7 @@
 
 **Author**: Metasoft  
 **Project**: Veyra health-monitoring firmware  
-**Version**: 0.2.0  
+**Version**: 0.2.1  
 **Date**: June 2026
 
 ## Overview
@@ -74,6 +74,10 @@ The firmware POSTs sensor readings to `veyra-edge`. Node identity goes in HTTP h
 | Heart rate (MAX30102) | `heart_rate` | Valid smoothed BPM |
 | SpO2 (MAX30102) | `oxygen_saturation` | Valid smoothed SpO2 |
 | Body temp (LM35) | `temperature` | Skin contact (≥ 30 °C) |
+| Ambient temp (LM35) | `ambient_temperature` | No skin contact (&lt; 30 °C) |
+| GPS fix | `latitude`, `longitude` | Valid NMEA fix |
+| GPS status | `satellite_count`, `satellites_in_view` | NMEA received |
+| Sensor health | `diagnostics` | Every POST (per-sensor status object) |
 
 **Headers:** `Content-Type: application/json`, `X-Device-Id: <DEVICE_ID>`, `X-API-Key: <API_KEY>`
 
@@ -174,10 +178,10 @@ void setup() {
     delay(500);
     device.begin();
 
-    // Startup diagnostics (see veyra-embedded-app.ino)
-    if (!device.getMax30102().isInitialized()) { /* warn */ }
-    if (!device.getLcd().isInitialized()) { /* warn */ }
-    // GPS UART: active baud rate and bytes received at boot
+    // Startup summary (see veyra-embedded-app.ino)
+    if (!device.getMax30102().isInitialized()) { /* Sensor pulso: no detectado */ }
+    if (!device.getLcd().isInitialized()) { /* Pantalla LCD: no detectada */ }
+    // GPS and edge Wi-Fi status printed at end of setup()
 }
 
 void loop() {
@@ -189,7 +193,8 @@ void loop() {
 
 1. Poll GPS and MAX30102 every tick.
 2. Read LM35 every 1 s (emits `TEMPERATURE_READ_EVENT`).
-3. Refresh Serial + LCD every 2 s (rotating 3 pages), independent of sensor events.
+3. Refresh Serial + LCD every 2 s in `refreshStatus()`.
+4. Publish telemetry on PPG, temperature, or GPS events (debounced by `TELEMETRY_INTERVAL_MS`).
 
 **I2C buses:**
 
@@ -198,65 +203,70 @@ void loop() {
 
 ### Serial status output
 
-Status blocks print every 2 s. LM35 lines are mutually exclusive:
+Status blocks print every 2 s in Spanish. LM35 lines are mutually exclusive:
 
-- **Below 30 °C** (no skin contact): `Ambient (LM35)` plus `Body (LM35): --`.
-- **≥ 30 °C** (valid skin contact): `Body (LM35)` only; ambient line is hidden.
+- **Below 30 °C** (no skin contact): `Temperatura ambiente` plus a hint to place the sensor on skin.
+- **≥ 30 °C** (valid skin contact): `Temperatura piel` only.
 
 **Example — ambient, finger on MAX30102, GPS searching:**
 
 ```
-======== Veyra Status ========
-Ambient (LM35):  14.0 C
-Body (LM35):     -- (hold sensor flat against skin)
-Heart rate:      78 bpm
-SpO2:            97 %
-GPS:             searching fix (0 used, 4 in view)
-==============================
+------ Lecturas Veyra ------
+Temperatura ambiente: 13.2 C
+Temperatura piel:     - apoya el sensor en la piel
+Pulso:                75 lat/min
+Oxigeno (SpO2):       96 %
+GPS:                  buscando senal - prueba al aire libre
+----------------------------
 ```
 
-**Example — no finger, PPG waiting:**
+**Example — pulse valid, SpO2 still stabilizing:**
 
 ```
-======== Veyra Status ========
-Ambient (LM35):  18.2 C
-Body (LM35):     -- (hold sensor flat against skin)
-PPG:             waiting for finger (IR avg: 8421, need >12000)
-GPS:             searching fix (0 sats) — try outdoors / clear sky
-==============================
+------ Lecturas Veyra ------
+Temperatura ambiente: 13.2 C
+Temperatura piel:     - apoya el sensor en la piel
+Pulso:                75 lat/min
+Oxigeno (SpO2):       midiendo...
+GPS:                  buscando senal (0 en uso, 1 visibles)
+----------------------------
 ```
 
-**PPG diagnostic lines** (shown when HR/SpO2 are not yet valid):
+**PPG hints** (shown when HR/SpO2 are not yet valid):
 
 | Message | Meaning |
 |---------|---------|
-| `waiting for finger` | IR below contact threshold |
-| `measuring pulse` | Finger detected; collecting samples |
-| `saturated` | IR too high — lighten finger pressure |
-| `sensor not detected` | MAX30102 missing on I2C |
+| `apoya el dedo en el sensor` | No finger detected |
+| `midiendo, manten el dedo quieto` | Finger on sensor; collecting samples |
+| `presiona menos el dedo` | IR saturated — lighten pressure |
+| `sensor no detectado` | MAX30102 missing on I2C |
 
-**GPS diagnostic lines:**
+**GPS lines:**
 
 | Message | Meaning |
 |---------|---------|
-| `searching fix (N used, M in view)` | NMEA received; GSV reports satellites in view |
-| `searching fix (N sats)` | NMEA received; no GSV view count yet |
-| `no data (bytes @ baud, GPS TX->ESP RX17)` | No NMEA bytes after baud probe |
-| `latitude` / `longitude` / `satellites` | Valid fix |
+| `buscando senal (N en uso, M visibles)` | NMEA received; satellites in view |
+| `buscando senal - prueba al aire libre` | NMEA received; no fix yet |
+| `sin datos - revisa conexion TX/RX` | No NMEA bytes after baud probe |
+| `Ubicacion GPS` / `Satelites GPS` | Valid fix |
 
 At boot, `Neo6m::begin()` probes **9600, 115200, and 4800** baud and locks onto the first rate that receives NMEA (`$`).
 
-**LCD pages (rotate every 2 s):**
+### LCD layout (single fixed screen)
 
-| Page | Line 0 | Line 1 |
-|------|--------|--------|
-| 1 | Body temp or `--` | HR / SpO2 or finger hint |
-| 2 | `Amb:XX.XC` or `Skin contact OK` | GPS latitude / sats in view |
-| 3 | GPS longitude / status | Fix or wiring hint |
+The LCD shows **one view** (no page rotation). Unused character positions are padded with spaces (never null bytes).
+
+| State | Line 0 | Line 1 |
+|-------|--------|--------|
+| Vitals active | `Pulso: 75` | `Oxig: 96%` |
+| Pulse only | `Pulso: 75` | `Oxig: ...` |
+| Idle (ambient) | `Temp: 13.2 C` | `Apoya el dedo` |
+| Skin temperature | `Piel: 36.5 C` | hint or vitals |
+| Press too hard | `Temp: 13.2 C` | `Suelta un poco` |
 
 ## Usage tips
 
-- **MAX30102:** Cover the full sensor window with the finger pad; hold still 5–10 s.
+- **MAX30102:** Cover the sensor window with the finger pad; use **light pressure** and hold still 10–15 s. SpO2 may appear a few seconds after heart rate.
 - **LM35 body temp:** Press the metal side against skin for 30–60 s; inner wrist or armpit works better than outer arm.
 - **GPS:** Test outdoors with the antenna facing up; indoor fix is often unavailable.
 - **Power:** Several modules on USB can trigger brownout resets; use a stable 5 V supply if uploads or runtime are unstable.

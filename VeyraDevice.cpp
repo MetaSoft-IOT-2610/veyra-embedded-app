@@ -117,16 +117,46 @@ const char* ppgPhaseLcdHint(Max30102::PpgPhase phase) {
         case Max30102::PpgPhase::NotDetected:
             return "Sin sensor";
         case Max30102::PpgPhase::WarmingUp:
-            return "Espera...";
+            return "Preparando...";
         case Max30102::PpgPhase::WaitingFinger:
             return "Apoya el dedo";
         case Max30102::PpgPhase::Measuring:
-            return "Midiendo...";
+            return "No te muevas";
         case Max30102::PpgPhase::PressTooHard:
-            return "Menos presion";
+            return "Suelta un poco";
         default:
             return nullptr;
     }
+}
+
+void formatLcdDisplay(
+    const Lm35& lm35,
+    const Max30102& max30102,
+    char* line0,
+    char* line1
+) {
+    if (max30102.isLastReadingValid() || max30102.isLastSpO2Valid()) {
+        if (max30102.isLastReadingValid()) {
+            snprintf(line0, 17, "Pulso: %d", max30102.getLastHeartRate());
+        } else {
+            snprintf(line0, 17, "Pulso: --");
+        }
+        if (max30102.isLastSpO2Valid()) {
+            snprintf(line1, 17, "Oxig: %d%%", max30102.getLastSpO2());
+        } else {
+            snprintf(line1, 17, "Oxig: ...");
+        }
+        return;
+    }
+
+    if (lm35.isBodyTemperatureValid()) {
+        snprintf(line0, 17, "Piel: %.1f C", lm35.getLastReading());
+    } else {
+        snprintf(line0, 17, "Temp: %.1f C", lm35.getLastReading());
+    }
+
+    const char* hint = ppgPhaseLcdHint(max30102.getPhase());
+    snprintf(line1, 17, "%s", hint != nullptr ? hint : "Apoya el dedo");
 }
 
 void printSerialReadings(const Lm35& lm35, const Max30102& max30102, const Neo6m& neo6m) {
@@ -145,6 +175,8 @@ void printSerialReadings(const Lm35& lm35, const Max30102& max30102, const Neo6m
     }
     if (max30102.isLastSpO2Valid()) {
         Serial.printf("Oxigeno (SpO2):       %d %%\n", max30102.getLastSpO2());
+    } else if (max30102.isLastReadingValid() && max30102.isFingerDetected()) {
+        Serial.println(F("Oxigeno (SpO2):       midiendo..."));
     }
     if (!max30102.isLastReadingValid() && !max30102.isLastSpO2Valid()) {
         const char* hint = ppgPhaseMessage(max30102.getPhase());
@@ -171,74 +203,6 @@ void printSerialReadings(const Lm35& lm35, const Max30102& max30102, const Neo6m
     }
 
     Serial.println(F("----------------------------"));
-}
-
-void formatLcdPage(
-    uint8_t page,
-    const Lm35& lm35,
-    const Max30102& max30102,
-    const Neo6m& neo6m,
-    char* line0,
-    char* line1
-) {
-    switch (page % 3) {
-        case 0:
-            if (lm35.isBodyTemperatureValid()) {
-                snprintf(line0, 17, "Piel: %.1f C", lm35.getLastReading());
-            } else {
-                snprintf(line0, 17, "Amb: %.1f C", lm35.getLastReading());
-            }
-            if (max30102.isLastReadingValid() && max30102.isLastSpO2Valid()) {
-                snprintf(
-                    line1,
-                    17,
-                    "%d/min SpO2 %d",
-                    max30102.getLastHeartRate(),
-                    max30102.getLastSpO2()
-                );
-            } else if (max30102.isLastReadingValid()) {
-                snprintf(line1, 17, "Pulso %d/min", max30102.getLastHeartRate());
-            } else if (max30102.isLastSpO2Valid()) {
-                snprintf(line1, 17, "SpO2: %d %%", max30102.getLastSpO2());
-            } else {
-                const char* hint = ppgPhaseLcdHint(max30102.getPhase());
-                snprintf(line1, 17, "%s", hint != nullptr ? hint : "...");
-            }
-            break;
-        case 1:
-            if (lm35.isBodyTemperatureValid()) {
-                snprintf(line0, 17, "Piel: %.1f C", lm35.getLastReading());
-            } else {
-                snprintf(line0, 17, "Amb: %.1f C", lm35.getLastReading());
-                snprintf(line1, 17, "Apoya en piel");
-            }
-            if (lm35.isBodyTemperatureValid()) {
-                if (max30102.getPhase() == Max30102::PpgPhase::Ready) {
-                    snprintf(line1, 17, "Lecturas OK");
-                } else {
-                    const char* hint = ppgPhaseLcdHint(max30102.getPhase());
-                    snprintf(line1, 17, "%s", hint != nullptr ? hint : "...");
-                }
-            }
-            break;
-        default:
-            if (neo6m.isLastReadingValid()) {
-                snprintf(line0, 17, "GPS: ubicacion");
-                snprintf(line1, 17, "%d satelites", neo6m.getSatelliteCount());
-            } else if (neo6m.isReceivingData()) {
-                snprintf(line0, 17, "GPS: buscando");
-                snprintf(
-                    line1,
-                    17,
-                    "%d visibles",
-                    neo6m.getSatellitesInView() > 0 ? neo6m.getSatellitesInView() : neo6m.getSatelliteCount()
-                );
-            } else {
-                snprintf(line0, 17, "GPS: sin senal");
-                snprintf(line1, 17, "Revisa cableado");
-            }
-            break;
-    }
 }
 
 EdgeHttpClient* g_edgeHttpClient = nullptr;
@@ -269,8 +233,7 @@ VeyraDevice::VeyraDevice(
       max30102(max30102SdaPin, max30102SclPin, this),
       lcd(lcdSdaPin, lcdSclPin, this),
       lastStatusRefreshMs(0),
-      lastTemperatureReadMs(0),
-      lcdPage(0) {}
+      lastTemperatureReadMs(0) {}
 
 void VeyraDevice::begin() {
     g_edgeHttpClient = &edgeHttp;
@@ -326,9 +289,8 @@ void VeyraDevice::refreshStatus() {
     char line1[17] = "";
 
     printSerialReadings(lm35, max30102, neo6m);
-    formatLcdPage(lcdPage, lm35, max30102, neo6m, line0, line1);
+    formatLcdDisplay(lm35, max30102, line0, line1);
 
-    lcdPage++;
     lcd.setLine(0, line0);
     lcd.setLine(1, line1);
     lcd.refresh();
