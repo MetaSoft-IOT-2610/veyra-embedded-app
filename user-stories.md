@@ -98,7 +98,7 @@ Acceptance criteria use the **Given-When-Then** format.
 
 - **As a** Device Maker, **I want** the firmware to POST vitals and diagnostics to veyra-edge, **so that** readings are buffered locally at the gateway.
 - **Acceptance Criteria**:
-  - **Given** valid `secrets.h`, **when** vitals events fire, **then** the device POSTs JSON with `X-Device-Id` and `X-API-Key` headers.
+  - **Given** valid `secrets.h`, **when** vitals events fire, **then** the device POSTs JSON with `X-Device-Id` and `X-Device-Mac` headers.
   - **Given** a telemetry payload, **when** inspected, **then** it may include `heart_rate`, `oxygen_saturation`, `temperature`, `ambient_temperature`, GPS fields, and `diagnostics`.
 
 ---
