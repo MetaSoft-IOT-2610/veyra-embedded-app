@@ -37,13 +37,39 @@ bool EdgeHttpClient::connectWifi() {
 }
 
 bool EdgeHttpClient::extractAccessToken(const String& responseBody, String& tokenOut) {
-    const char* marker = "\"access_token\":\"";
-    const int start = responseBody.indexOf(marker);
-    if (start < 0) {
+    const int keyStart = responseBody.indexOf("\"access_token\"");
+    if (keyStart < 0) {
         return false;
     }
 
-    const int valueStart = start + static_cast<int>(strlen(marker));
+    int cursor = keyStart + static_cast<int>(strlen("\"access_token\""));
+    while (cursor < responseBody.length()) {
+        const char ch = responseBody.charAt(cursor);
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+            cursor++;
+            continue;
+        }
+        if (ch != ':') {
+            return false;
+        }
+        cursor++;
+        break;
+    }
+
+    while (cursor < responseBody.length()) {
+        const char ch = responseBody.charAt(cursor);
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+            cursor++;
+            continue;
+        }
+        if (ch != '"') {
+            return false;
+        }
+        cursor++;
+        break;
+    }
+
+    const int valueStart = cursor;
     const int valueEnd = responseBody.indexOf('"', valueStart);
     if (valueEnd < 0) {
         return false;
