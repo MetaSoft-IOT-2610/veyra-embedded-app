@@ -25,10 +25,6 @@ static const char* max30102DiagnosticStatus(const Max30102& max30102) {
     switch (max30102.getPhase()) {
         case Max30102::PpgPhase::NotDetected:
             return "not_detected";
-        case Max30102::PpgPhase::PressTooHard:
-            return "signal_saturated";
-        case Max30102::PpgPhase::WaitingFinger:
-            return "waiting_for_finger";
         case Max30102::PpgPhase::Ready:
             return "ok";
         default:
@@ -98,32 +94,11 @@ namespace {
 const char* ppgPhaseMessage(Max30102::PpgPhase phase) {
     switch (phase) {
         case Max30102::PpgPhase::NotDetected:
-            return "sensor no detectado - revisa cableado";
+            return "sensor no detectado";
         case Max30102::PpgPhase::WarmingUp:
-            return "iniciando, espera unos segundos";
-        case Max30102::PpgPhase::WaitingFinger:
-            return "apoya el dedo en el sensor";
+            return "calibrando sensor";
         case Max30102::PpgPhase::Measuring:
-            return "midiendo, manten el dedo quieto";
-        case Max30102::PpgPhase::PressTooHard:
-            return "presiona menos el dedo";
-        default:
-            return nullptr;
-    }
-}
-
-const char* ppgPhaseLcdHint(Max30102::PpgPhase phase) {
-    switch (phase) {
-        case Max30102::PpgPhase::NotDetected:
-            return "Sin sensor";
-        case Max30102::PpgPhase::WarmingUp:
-            return "Preparando...";
-        case Max30102::PpgPhase::WaitingFinger:
-            return "Apoya el dedo";
-        case Max30102::PpgPhase::Measuring:
-            return "No te muevas";
-        case Max30102::PpgPhase::PressTooHard:
-            return "Suelta un poco";
+            return "midiendo, apoya el dedo";
         default:
             return nullptr;
     }
@@ -135,28 +110,21 @@ void formatLcdDisplay(
     char* line0,
     char* line1
 ) {
-    if (max30102.isLastReadingValid() || max30102.isLastSpO2Valid()) {
-        if (max30102.isLastReadingValid()) {
-            snprintf(line0, 17, "Pulso: %d", max30102.getLastHeartRate());
-        } else {
-            snprintf(line0, 17, "Pulso: --");
-        }
-        if (max30102.isLastSpO2Valid()) {
-            snprintf(line1, 17, "Oxig: %d%%", max30102.getLastSpO2());
-        } else {
-            snprintf(line1, 17, "Oxig: ...");
-        }
-        return;
-    }
-
-    if (lm35.isBodyTemperatureValid()) {
-        snprintf(line0, 17, "Piel: %.1f C", lm35.getLastReading());
+    if (max30102.isLastReadingValid()) {
+        snprintf(line0, 17, "Pulso: %d", max30102.getLastHeartRate());
     } else {
-        snprintf(line0, 17, "Temp: %.1f C", lm35.getLastReading());
+        snprintf(line0, 17, "Pulso: -- (%d)", max30102.getBufferCount());
     }
 
-    const char* hint = ppgPhaseLcdHint(max30102.getPhase());
-    snprintf(line1, 17, "%s", hint != nullptr ? hint : "Apoya el dedo");
+    if (max30102.isLastSpO2Valid()) {
+        snprintf(line1, 17, "Oxig: %d%%", max30102.getLastSpO2());
+    } else if (max30102.isLastReadingValid()) {
+        snprintf(line1, 17, "Oxig: ...");
+    } else {
+        snprintf(line1, 17, "Buf: %d/100", max30102.getBufferCount());
+    }
+
+    (void)lm35;
 }
 
 void printSerialReadings(const Lm35& lm35, const Max30102& max30102, const Neo6m& neo6m) {
@@ -172,13 +140,15 @@ void printSerialReadings(const Lm35& lm35, const Max30102& max30102, const Neo6m
 
     if (max30102.isLastReadingValid()) {
         Serial.printf("Pulso:                %d lat/min\n", max30102.getLastHeartRate());
+    } else {
+        Serial.printf("Pulso:                -- (buf %d/100)\n", max30102.getBufferCount());
     }
+
     if (max30102.isLastSpO2Valid()) {
         Serial.printf("Oxigeno (SpO2):       %d %%\n", max30102.getLastSpO2());
-    } else if (max30102.isLastReadingValid() && max30102.isFingerDetected()) {
+    } else if (max30102.isLastReadingValid()) {
         Serial.println(F("Oxigeno (SpO2):       midiendo..."));
-    }
-    if (!max30102.isLastReadingValid() && !max30102.isLastSpO2Valid()) {
+    } else {
         const char* hint = ppgPhaseMessage(max30102.getPhase());
         if (hint != nullptr) {
             Serial.printf("Pulso / SpO2:         %s\n", hint);
@@ -242,9 +212,10 @@ void VeyraDevice::begin() {
     lm35.begin();
     neo6m.begin();
     lcd.begin();
-    max30102.begin();
 
     edgeHttp.begin();
+
+    max30102.begin();
     max30102.onWifiReady();
 
     readTemperature();
@@ -319,6 +290,8 @@ EdgeHttpClient& VeyraDevice::getEdgeHttp() {
 }
 
 void VeyraDevice::maybePublishTelemetry() {
+    max30102.serviceBeforeBlocking();
+
     TelemetrySnapshot snapshot = {};
     snapshot.heartRate = max30102.getLastHeartRate();
     snapshot.heartRateValid = max30102.isLastReadingValid();

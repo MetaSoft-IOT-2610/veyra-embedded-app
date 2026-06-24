@@ -45,23 +45,19 @@ static const uint8_t REG_INTR_ENABLE_2 = 0x03;
 static const uint8_t REG_PART_ID = 0xFF;
 
 static const uint8_t EXPECTED_PART_ID = 0x15;
-// SparkFun / Maxim wearable defaults: 100 sps, 4-sample FIFO avg (~25 Hz), 4096 nA ADC, 411 us pulse.
+// SparkFun / Maxim MAXREFDES117: 100 sps, 4-sample FIFO avg (~25 Hz), 4096 nA, 411 us pulse.
 static const uint8_t FIFO_CONFIG_VALUE = 0x4F;
 static const uint8_t MODE_SPO2_VALUE = 0x03;
 static const uint8_t SPO2_CONFIG_VALUE = 0x27;
-static const uint8_t LED_RED_AMPLITUDE = 0x60;  // Red LED slightly higher for stable SpO2 ratio.
-static const uint8_t LED_IR_AMPLITUDE = 0x50;   // ~16 mA IR; lower if ADC clips at 262143.
+static const uint8_t LED_RED_AMPLITUDE = 0x60;
+static const uint8_t LED_IR_AMPLITUDE = 0x55;
 static const unsigned long I2C_READ_TIMEOUT_MS = 50;
 static const unsigned long REPORT_INTERVAL_MS = 1000;
-static const int MIN_FINGER_IR = 5000;
-static const int MAX_FINGER_IR = 240000;
-static const int MIN_IR_VARIATION = 400;
-static const int CHANNEL_DETECT_MIN_SAMPLES = 25;
 static const int MIN_SAMPLES_FOR_METRICS = BUFFER_SIZE;
 static const int SAMPLE_SHIFT = FreqS;
+static const int CHANNEL_DETECT_MIN_SAMPLES = 25;
 
 namespace {
-// Post-processing after Maxim MAXREFDES117 algorithm (peak distance in spo2_algorithm.h).
 constexpr int HR_HARMONIC_CORRECT_MIN = 118;
 constexpr int SPO2_CALIBRATION_OFFSET = -1;
 constexpr int SPO2_MIN_VALID = 65;
@@ -78,6 +74,9 @@ Max30102::Max30102(int sdaPin, int sclPin, EventHandler* eventHandler)
       activeSclPin(sclPin),
       lastFifoPending(0),
       initialized(false),
+      i2cBusStarted(false),
+      emptyPollStreak(0),
+      initMillis(0),
       lastHeartRate(0),
       lastSpO2(0),
       lastReadingValid(false),
@@ -89,7 +88,6 @@ Max30102::Max30102(int sdaPin, int sclPin, EventHandler* eventHandler)
       lastIrAverage(0),
       lastRedAverage(0),
       lastIrVariation(0),
-      lastSignalSaturated(false),
       hrSmoothCount(0),
       spo2SmoothCount(0) {}
 
@@ -103,14 +101,25 @@ bool Max30102::usesAdc2Bus() const {
         || activeSclPin == 32 || activeSclPin == 33;
 }
 
+void Max30102::ensureI2cBus() {
+    if (i2cBus == nullptr) {
+        return;
+    }
+
+    if (!i2cBusStarted) {
+        i2cBus->begin(activeSdaPin, activeSclPin);
+        i2cBus->setClock(100000);
+        i2cBus->setTimeout(1000);
+        i2cBusStarted = true;
+    }
+}
+
 void Max30102::beginBusSession() {
     if (usesAdc2Bus() && wifiSuspendFn != nullptr) {
         wifiSuspendFn();
     }
 
-    i2cBus->begin(activeSdaPin, activeSclPin);
-    i2cBus->setClock(100000);
-    i2cBus->setTimeout(1000);
+    ensureI2cBus();
 }
 
 void Max30102::endBusSession() {
@@ -121,20 +130,22 @@ void Max30102::endBusSession() {
 
 void Max30102::begin() {
     initialized = false;
+    i2cBusStarted = false;
+    emptyPollStreak = 0;
+    initMillis = 0;
     lastFifoPending = 0;
 
     struct BusCandidate {
         TwoWire* bus;
         int sda;
         int scl;
-        const char* label;
     };
 
     const BusCandidate candidates[] = {
-        {&Wire, pin, sclPin, "Wire config"},
-        {&Wire, sclPin, pin, "Wire swapped"},
-        {&Wire1, 21, 22, "Wire1 LCD bus"},
-        {&Wire1, 22, 21, "Wire1 swapped"},
+        {&Wire, pin, sclPin},
+        {&Wire, sclPin, pin},
+        {&Wire1, 21, 22},
+        {&Wire1, 22, 21},
     };
 
     bool found = false;
@@ -156,9 +167,7 @@ void Max30102::begin() {
         return;
     }
 
-    i2cBus->begin(activeSdaPin, activeSclPin);
-    i2cBus->setClock(100000);
-    i2cBus->setTimeout(1000);
+    beginBusSession();
 
     if (!reset() || !configure()) {
         Serial.println(F("Sensor pulso: error de inicializacion"));
@@ -169,7 +178,9 @@ void Max30102::begin() {
         return;
     }
 
+    endBusSession();
     initialized = true;
+    initMillis = millis();
 }
 
 void Max30102::onWifiReady() {
@@ -177,12 +188,21 @@ void Max30102::onWifiReady() {
         return;
     }
 
+    i2cBusStarted = false;
     beginBusSession();
     wakeSensor();
-    drainFifo();
-    refreshIrDiagnostics();
     endBusSession();
+}
 
+void Max30102::serviceBeforeBlocking() {
+    if (!initialized) {
+        return;
+    }
+
+    beginBusSession();
+    readRegister(REG_INTR_STATUS_1);
+    drainFifo();
+    endBusSession();
 }
 
 void Max30102::update() {
@@ -193,15 +213,22 @@ void Max30102::update() {
     beginBusSession();
 
     readRegister(REG_INTR_STATUS_1);
-
+    const int samplesBefore = bufferCount;
     drainFifo();
     refreshIrDiagnostics();
+
+    if (bufferCount > samplesBefore) {
+        emptyPollStreak = 0;
+    } else {
+        emptyPollStreak++;
+        recoverSensorIfStalled();
+    }
 
     if (!channelsMapped && bufferCount >= CHANNEL_DETECT_MIN_SAMPLES) {
         detectChannelMapping();
     }
 
-    unsigned long now = millis();
+    const unsigned long now = millis();
     if (bufferCount >= MIN_SAMPLES_FOR_METRICS && now - lastReportMillis >= REPORT_INTERVAL_MS) {
         calculateMetrics();
         shiftSampleWindow();
@@ -261,26 +288,22 @@ uint32_t Max30102::getLastIrVariation() const {
 }
 
 bool Max30102::isFingerDetected() const {
-    const uint32_t signal = lastIrAverage > lastRedAverage ? lastIrAverage : lastRedAverage;
-    return signal >= static_cast<uint32_t>(MIN_FINGER_IR);
+    return bufferCount >= CHANNEL_DETECT_MIN_SAMPLES && lastIrAverage > 5000;
 }
 
 bool Max30102::isSignalSaturated() const {
-    return lastSignalSaturated;
+    return lastIrAverage > 240000;
 }
 
 Max30102::PpgPhase Max30102::getPhase() const {
     if (!initialized) {
         return PpgPhase::NotDetected;
     }
-    if (isSignalSaturated()) {
-        return PpgPhase::PressTooHard;
-    }
-    if (!isFingerDetected()) {
-        return bufferCount < MIN_SAMPLES_FOR_METRICS ? PpgPhase::WarmingUp : PpgPhase::WaitingFinger;
-    }
     if (lastReadingValid || lastSpO2Valid) {
         return PpgPhase::Ready;
+    }
+    if (bufferCount < MIN_SAMPLES_FOR_METRICS) {
+        return PpgPhase::WarmingUp;
     }
     return PpgPhase::Measuring;
 }
@@ -361,18 +384,10 @@ bool Max30102::wakeSensor() {
     delay(10);
     writeRegister(REG_MODE_CONFIG, MODE_SPO2_VALUE);
 
-    const uint8_t fifoBefore = readRegister(REG_FIFO_WR_PTR);
-    delay(250);
-    const uint8_t fifoAfter = readRegister(REG_FIFO_WR_PTR);
     const uint8_t mode = readRegister(REG_MODE_CONFIG);
-
     if ((mode & 0x80) != 0) {
         Serial.println(F("Sensor pulso: sigue apagado tras encender"));
         return false;
-    }
-
-    if (fifoBefore == fifoAfter) {
-        Serial.println(F("Sensor pulso: sin muestras - revisa dedo o cableado"));
     }
 
     return true;
@@ -423,47 +438,83 @@ bool Max30102::configure() {
 }
 
 int Max30102::availableFifoSamples() {
-    const uint8_t writePtr = readRegister(REG_FIFO_WR_PTR);
-    const uint8_t readPtr = readRegister(REG_FIFO_RD_PTR);
-    int count = static_cast<int>(writePtr) - static_cast<int>(readPtr);
-    if (count < 0) {
-        count += 32;
-    }
-    return count;
+    const uint8_t writePtr = readRegister(REG_FIFO_WR_PTR) & 0x1F;
+    const uint8_t readPtr = readRegister(REG_FIFO_RD_PTR) & 0x1F;
+    return (static_cast<int>(writePtr) - static_cast<int>(readPtr)) & 0x1F;
 }
 
 void Max30102::drainFifo() {
-    int samples = availableFifoSamples();
-    lastFifoPending = static_cast<uint8_t>(samples > 0 ? samples : 0);
+    int totalRead = 0;
+    const int maxSamplesPerUpdate = 64;
 
-    if (samples <= 0) {
-        if (readRegister(REG_OVF_COUNTER) != 0) {
-            flushFifo();
-        }
-        return;
-    }
-
-    if (samples > 32) {
-        samples = 32;
-    }
-
-    for (int i = 0; i < samples; i++) {
-        uint32_t red = 0;
-        uint32_t ir = 0;
-        if (!readFifoSample(red, ir)) {
+    while (totalRead < maxSamplesPerUpdate) {
+        int samples = availableFifoSamples();
+        lastFifoPending = static_cast<uint8_t>(samples > 0 ? samples : 0);
+        if (samples <= 0) {
             break;
         }
+        if (samples > 32) {
+            samples = 32;
+        }
 
-        if (swapRedIrChannels) {
-            appendSample(ir, red);
-        } else {
-            appendSample(red, ir);
+        for (int i = 0; i < samples; i++) {
+            uint32_t red = 0;
+            uint32_t ir = 0;
+            if (!readFifoSample(red, ir)) {
+                return;
+            }
+
+            if (swapRedIrChannels) {
+                appendSample(ir, red);
+            } else {
+                appendSample(red, ir);
+            }
+            totalRead++;
         }
     }
 
     if (readRegister(REG_OVF_COUNTER) != 0) {
-        flushFifo();
+        while (availableFifoSamples() > 0 && totalRead < maxSamplesPerUpdate) {
+            uint32_t red = 0;
+            uint32_t ir = 0;
+            if (!readFifoSample(red, ir)) {
+                break;
+            }
+            if (swapRedIrChannels) {
+                appendSample(ir, red);
+            } else {
+                appendSample(red, ir);
+            }
+            totalRead++;
+        }
+        writeRegister(REG_OVF_COUNTER, 0x00);
     }
+}
+
+void Max30102::recoverSensorIfStalled() {
+    if (emptyPollStreak < 50) {
+        return;
+    }
+
+    emptyPollStreak = 0;
+
+    const uint8_t writePtr = readRegister(REG_FIFO_WR_PTR);
+    const uint8_t readPtr = readRegister(REG_FIFO_RD_PTR);
+    const uint8_t overflow = readRegister(REG_OVF_COUNTER);
+
+    if (bufferCount == 0 && initMillis != 0 && millis() - initMillis > 3000) {
+        Serial.printf(
+            "Sensor pulso: sin muestras (WR=%u RD=%u OVF=%u fifo=%u)\n",
+            writePtr,
+            readPtr,
+            overflow,
+            lastFifoPending
+        );
+    }
+
+    i2cBusStarted = false;
+    ensureI2cBus();
+    wakeSensor();
 }
 
 void Max30102::detectChannelMapping() {
@@ -478,7 +529,7 @@ void Max30102::detectChannelMapping() {
     const uint32_t redAvg = redSum / static_cast<uint32_t>(bufferCount);
     const uint32_t irAvg = irSum / static_cast<uint32_t>(bufferCount);
 
-    if (!swapRedIrChannels && redAvg > irAvg * 2 && redAvg >= static_cast<uint32_t>(MIN_FINGER_IR)) {
+    if (!swapRedIrChannels && redAvg > irAvg * 2 && redAvg > 5000) {
         swapRedIrChannels = true;
         for (int i = 0; i < bufferCount; i++) {
             const uint32_t temp = redBuffer[i];
@@ -526,9 +577,6 @@ void Max30102::refreshIrDiagnostics() {
     lastIrAverage = irSum / static_cast<uint32_t>(bufferCount);
     lastRedAverage = redSum / static_cast<uint32_t>(bufferCount);
     lastIrVariation = irMax - irMin;
-    lastSignalSaturated = lastIrAverage > static_cast<uint32_t>(MAX_FINGER_IR)
-        || (lastIrAverage >= static_cast<uint32_t>(MIN_FINGER_IR)
-            && lastIrVariation < static_cast<uint32_t>(MIN_IR_VARIATION));
 }
 
 void Max30102::appendSample(uint32_t red, uint32_t ir) {
@@ -554,11 +602,6 @@ void Max30102::shiftSampleWindow() {
         redBuffer[i - SAMPLE_SHIFT] = redBuffer[i];
     }
     bufferCount = SAMPLE_BUFFER_SIZE - SAMPLE_SHIFT;
-}
-
-void Max30102::resetSmoothing() {
-    hrSmoothCount = 0;
-    spo2SmoothCount = 0;
 }
 
 int Max30102::calibrateHeartRate(int rawHr, uint32_t irVariation) {
@@ -650,46 +693,7 @@ bool Max30102::smoothSpO2(int rawSpO2, int& smoothedSpO2) {
 }
 
 void Max30102::calculateMetrics() {
-    uint32_t irSum = 0;
-    uint32_t irMin = UINT32_MAX;
-    uint32_t irMax = 0;
-
-    for (int i = 0; i < bufferCount; i++) {
-        irSum += irBuffer[i];
-        if (irBuffer[i] < irMin) {
-            irMin = irBuffer[i];
-        }
-        if (irBuffer[i] > irMax) {
-            irMax = irBuffer[i];
-        }
-    }
-
-    lastIrAverage = irSum / bufferCount;
-    lastIrVariation = irMax - irMin;
-    lastSignalSaturated = false;
-
-    if (lastIrAverage < static_cast<uint32_t>(MIN_FINGER_IR) &&
-        lastRedAverage < static_cast<uint32_t>(MIN_FINGER_IR)) {
-        resetSmoothing();
-        lastReadingValid = false;
-        lastSpO2Valid = false;
-        lastHeartRate = 0;
-        lastSpO2 = 0;
-        return;
-    }
-
-    if (lastIrAverage > static_cast<uint32_t>(MAX_FINGER_IR) ||
-        lastIrVariation < static_cast<uint32_t>(MIN_IR_VARIATION)) {
-        resetSmoothing();
-        lastSignalSaturated = true;
-        lastReadingValid = false;
-        lastSpO2Valid = false;
-        lastHeartRate = 0;
-        lastSpO2 = 0;
-        return;
-    }
-
-    lastSignalSaturated = false;
+    refreshIrDiagnostics();
 
     int32_t spo2 = 0;
     int8_t spo2Valid = 0;
@@ -713,8 +717,8 @@ void Max30102::calculateMetrics() {
         spo2 = calibrateSpO2(static_cast<int>(spo2));
     }
 
-    bool rawHrOk = (hrValid != 0 && heartRate >= 40 && heartRate <= 200);
-    bool rawSpO2Ok = (spo2Valid != 0 && spo2 >= SPO2_MIN_VALID && spo2 <= SPO2_MAX_VALID);
+    const bool rawHrOk = (hrValid != 0 && heartRate >= 40 && heartRate <= 200);
+    const bool rawSpO2Ok = (spo2Valid != 0 && spo2 >= SPO2_MIN_VALID && spo2 <= SPO2_MAX_VALID);
 
     if (rawHrOk) {
         int smoothedHr = 0;
@@ -728,9 +732,6 @@ void Max30102::calculateMetrics() {
             lastReadingValid = false;
             lastHeartRate = 0;
         }
-    } else if (hrSmoothCount >= 2) {
-        lastHeartRate = averageSamples(hrSmoothBuffer, hrSmoothCount);
-        lastReadingValid = true;
     } else {
         lastReadingValid = false;
         lastHeartRate = 0;
@@ -748,11 +749,19 @@ void Max30102::calculateMetrics() {
             lastSpO2Valid = false;
             lastSpO2 = 0;
         }
-    } else if (spo2SmoothCount >= 1) {
-        lastSpO2 = averageSamples(spo2SmoothBuffer, spo2SmoothCount);
-        lastSpO2Valid = true;
     } else {
         lastSpO2Valid = false;
         lastSpO2 = 0;
+    }
+
+    if (rawHrOk || rawSpO2Ok) {
+        Serial.printf(
+            "Sensor pulso: HR=%d SpO2=%d (IR=%lu var=%lu buf=%d)\n",
+            lastReadingValid ? lastHeartRate : 0,
+            lastSpO2Valid ? lastSpO2 : 0,
+            static_cast<unsigned long>(lastIrAverage),
+            static_cast<unsigned long>(lastIrVariation),
+            bufferCount
+        );
     }
 }

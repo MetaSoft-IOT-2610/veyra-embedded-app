@@ -13,8 +13,14 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 
+EdgeHttpClient::BlockingYieldHook EdgeHttpClient::blockingYieldHook = nullptr;
+
 EdgeHttpClient::EdgeHttpClient()
     : wifiReady(false), wifiResumePending(false), lastPublishMs(0), accessToken("") {}
+
+void EdgeHttpClient::setBlockingYieldHook(BlockingYieldHook hook) {
+    blockingYieldHook = hook;
+}
 
 bool EdgeHttpClient::connectWifi() {
     if (WiFi.status() == WL_CONNECTED) {
@@ -26,11 +32,14 @@ bool EdgeHttpClient::connectWifi() {
 
     const unsigned long startMs = millis();
     while (WiFi.status() != WL_CONNECTED) {
+        if (blockingYieldHook != nullptr) {
+            blockingYieldHook();
+        }
         if (millis() - startMs >= WIFI_CONNECT_TIMEOUT_MS) {
             Serial.println(F("Servidor edge: tiempo de espera Wi-Fi agotado"));
             return false;
         }
-        delay(250);
+        delay(50);
     }
 
     return true;
