@@ -71,11 +71,15 @@ struct SensorDiagnostics {
  * on telemetry POSTs. The JSON body carries sensor readings only.
  */
 class EdgeHttpClient {
+public:
+    using BlockingYieldHook = void (*)();
+
 private:
     bool wifiReady;
     bool wifiResumePending;
     unsigned long lastPublishMs;
     String accessToken;
+    static BlockingYieldHook blockingYieldHook;
 
     bool connectWifi();
     bool signIn();
@@ -86,6 +90,11 @@ private:
 
 public:
     EdgeHttpClient();
+
+    /**
+     * @brief Called while waiting on Wi-Fi so other subsystems (e.g. MAX30102 FIFO) can run.
+     */
+    static void setBlockingYieldHook(BlockingYieldHook hook);
 
     /**
      * @brief Initializes Wi-Fi connectivity.

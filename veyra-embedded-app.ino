@@ -33,10 +33,6 @@ void setup() {
     if (!device.getMax30102().isInitialized()) {
         Serial.println(F("Sensor pulso: no detectado al arrancar"));
     } else {
-        for (int i = 0; i < 30; i++) {
-            device.update();
-            delay(50);
-        }
         Serial.println(F("Sensor pulso: listo - apoya el dedo para medir"));
     }
 
@@ -55,7 +51,7 @@ void setup() {
     if (device.getEdgeHttp().isAuthenticated()) {
         Serial.printf("Servidor edge: autenticado (%s)\n", device.getEdgeHttp().getDeviceId());
     } else if (device.getEdgeHttp().isConnected()) {
-        Serial.println(F("Servidor edge: Wi-Fi ok, sign-in fallido - revisa secrets.h y nodes.seed.json"));
+        Serial.println(F("Servidor edge: Wi-Fi ok, sign-in fallido - revisa secrets.h"));
     } else {
         Serial.println(F("Servidor edge: sin Wi-Fi - revisa secrets.h"));
     }
