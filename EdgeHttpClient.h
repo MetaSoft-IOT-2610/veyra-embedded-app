@@ -65,6 +65,24 @@ struct SensorDiagnostics {
 };
 
 /**
+ * @brief Threshold limits fetched from the edge for the current device.
+ *
+ * Mirrors the vital-sign boundaries the edge expects the band to honour. The
+ * @ref valid flag is true only when the edge response was parsed successfully.
+ */
+struct ThresholdSnapshot {
+    int heartRateMin;
+    int heartRateMax;
+    int oxygenSaturationMin;
+    int oxygenSaturationMax;
+    float temperatureMin;
+    float temperatureMax;
+    int respiratoryRateMin;
+    int respiratoryRateMax;
+    bool valid;
+};
+
+/**
  * @brief Connects to Wi-Fi and POSTs JSON payloads to the edge monitoring API.
  *
  * Identifies the node via sign-in (X-Device-Id, X-Device-Mac) then Bearer token
@@ -87,6 +105,18 @@ private:
     static bool extractAccessToken(const String& responseBody, String& tokenOut);
     bool postJson(const String& body, int& responseCode, bool allowRetry);
     static void appendDiagnostics(String& body, bool& first, const SensorDiagnostics& diagnostics);
+
+    /**
+     * @brief Performs an authenticated GET request and returns the response body.
+     *
+     * Signs in on demand and retries once after re-authenticating on HTTP 401,
+     * mirroring the recovery logic in @ref postJson.
+     *
+     * @param url Absolute endpoint to query.
+     * @param responseBodyOut Receives the raw response body on HTTP 2xx.
+     * @return true when the edge responded with HTTP 2xx.
+     */
+    bool getJson(const String& url, String& responseBodyOut);
 
 public:
     EdgeHttpClient();
@@ -126,6 +156,18 @@ public:
      * @return true when the edge responded with HTTP 2xx.
      */
     bool publishSnapshot(const TelemetrySnapshot& snapshot, const SensorDiagnostics& diagnostics);
+
+    /**
+     * @brief Fetches the latest vital-sign thresholds for a device from the edge.
+     *
+     * Issues an authenticated GET to GATEWAY_THRESHOLDS_URL/<deviceId> and parses
+     * the JSON response manually into @p out.
+     *
+     * @param deviceId Node identifier whose thresholds are requested.
+     * @param out Receives the parsed thresholds; out.valid is true on success.
+     * @return true when the thresholds were fetched and parsed successfully.
+     */
+    bool fetchThresholds(const char* deviceId, ThresholdSnapshot& out);
 };
 
 #endif // EDGE_HTTP_CLIENT_H

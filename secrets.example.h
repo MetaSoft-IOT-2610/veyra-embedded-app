@@ -17,6 +17,7 @@
 #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 #define GATEWAY_SIGN_IN_URL "http://192.168.1.100:5000/api/v1/auth/sign-in"
 #define GATEWAY_TELEMETRY_URL "http://192.168.1.100:5000/api/v1/monitoring/data-records"
+#define GATEWAY_THRESHOLDS_URL "http://<edge-host>:<port>/api/v1/monitoring/thresholds"
 #define DEVICE_ID "band-001"
 #define TELEMETRY_INTERVAL_MS 5000
 #define WIFI_CONNECT_TIMEOUT_MS 15000

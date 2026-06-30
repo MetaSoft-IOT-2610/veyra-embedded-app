@@ -37,6 +37,11 @@ private:
     Lcd1602 lcd;
     EdgeHttpClient edgeHttp;
 
+    /**
+     * @brief Latest vital-sign thresholds fetched from the edge after a publish.
+     */
+    ThresholdSnapshot thresholdSnapshot;
+
     unsigned long lastStatusRefreshMs;
     unsigned long lastTemperatureReadMs;
 

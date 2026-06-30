@@ -202,6 +202,7 @@ VeyraDevice::VeyraDevice(
       neo6m(gpsRxPin, gpsTxPin, this),
       max30102(max30102SdaPin, max30102SclPin, this),
       lcd(lcdSdaPin, lcdSclPin, this),
+      thresholdSnapshot{},
       lastStatusRefreshMs(0),
       lastTemperatureReadMs(0) {}
 
@@ -320,7 +321,30 @@ void VeyraDevice::maybePublishTelemetry() {
         snapshot.satellitesInViewValid = true;
     }
 
-    edgeHttp.publishSnapshot(snapshot, buildSensorDiagnostics(max30102, lm35, neo6m, lcd, edgeHttp));
+    const bool published = edgeHttp.publishSnapshot(
+        snapshot,
+        buildSensorDiagnostics(max30102, lm35, neo6m, lcd, edgeHttp)
+    );
+
+    if (!published) {
+        return;
+    }
+
+    if (edgeHttp.fetchThresholds(edgeHttp.getDeviceId(), thresholdSnapshot)) {
+        Serial.printf(
+            "Servidor edge: umbrales actualizados (FC %d-%d, SpO2 %d-%d, Temp %.1f-%.1f, FR %d-%d)\n",
+            thresholdSnapshot.heartRateMin,
+            thresholdSnapshot.heartRateMax,
+            thresholdSnapshot.oxygenSaturationMin,
+            thresholdSnapshot.oxygenSaturationMax,
+            thresholdSnapshot.temperatureMin,
+            thresholdSnapshot.temperatureMax,
+            thresholdSnapshot.respiratoryRateMin,
+            thresholdSnapshot.respiratoryRateMax
+        );
+    } else {
+        Serial.println(F("Servidor edge: no se pudieron obtener umbrales"));
+    }
 }
 
 void VeyraDevice::readTemperature() {

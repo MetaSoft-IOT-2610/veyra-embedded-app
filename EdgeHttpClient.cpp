@@ -366,3 +366,152 @@ bool EdgeHttpClient::publishSnapshot(const TelemetrySnapshot& snapshot, const Se
     lastPublishMs = now;
     return ok;
 }
+
+/**
+ * @brief Extracts a JSON number associated with @p key from @p body.
+ *
+ * Performs the same manual cursor scan as @ref EdgeHttpClient::extractAccessToken,
+ * reading the numeric token after the key's colon without an external JSON library.
+ *
+ * @param body Raw JSON document to scan.
+ * @param key Object key whose numeric value is requested (without quotes).
+ * @param valueOut Receives the parsed value when the key is found.
+ * @return true when a numeric value was located and parsed.
+ */
+static bool extractThresholdNumber(const String& body, const char* key, double& valueOut) {
+    const String needle = String("\"") + key + "\"";
+    const int keyStart = body.indexOf(needle);
+    if (keyStart < 0) {
+        return false;
+    }
+
+    int cursor = keyStart + needle.length();
+    while (cursor < body.length()) {
+        const char ch = body.charAt(cursor);
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+            cursor++;
+            continue;
+        }
+        if (ch != ':') {
+            return false;
+        }
+        cursor++;
+        break;
+    }
+
+    while (cursor < body.length()) {
+        const char ch = body.charAt(cursor);
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+            cursor++;
+            continue;
+        }
+        break;
+    }
+
+    const int valueStart = cursor;
+    while (cursor < body.length()) {
+        const char ch = body.charAt(cursor);
+        const bool isNumeric = (ch >= '0' && ch <= '9')
+            || ch == '-' || ch == '+' || ch == '.' || ch == 'e' || ch == 'E';
+        if (!isNumeric) {
+            break;
+        }
+        cursor++;
+    }
+
+    if (cursor == valueStart) {
+        return false;
+    }
+
+    valueOut = body.substring(valueStart, cursor).toDouble();
+    return true;
+}
+
+bool EdgeHttpClient::getJson(const String& url, String& responseBodyOut) {
+    if (!connectWifi()) {
+        wifiReady = false;
+        return false;
+    }
+    wifiReady = true;
+
+    if (!ensureSignedIn()) {
+        return false;
+    }
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        HTTPClient http;
+        http.setTimeout(HTTP_TIMEOUT_MS);
+        http.begin(url);
+        http.addHeader("Authorization", String("Bearer ") + accessToken);
+
+        const int responseCode = http.GET();
+        const String responseBody = http.getString();
+        const bool ok = responseCode >= 200 && responseCode < 300;
+        http.end();
+
+        if (ok) {
+            responseBodyOut = responseBody;
+            return true;
+        }
+
+        if (responseCode == 401 && attempt == 0) {
+            accessToken = "";
+            if (!signIn()) {
+                return false;
+            }
+            continue;
+        }
+
+        Serial.printf(
+            "Servidor edge: error al consultar (%d) %s\n",
+            responseCode,
+            responseBody.c_str()
+        );
+        return false;
+    }
+
+    return false;
+}
+
+bool EdgeHttpClient::fetchThresholds(const char* deviceId, ThresholdSnapshot& out) {
+    out = ThresholdSnapshot{};
+    out.valid = false;
+
+    const String url = String(GATEWAY_THRESHOLDS_URL) + "/" + deviceId;
+
+    String responseBody;
+    if (!getJson(url, responseBody)) {
+        return false;
+    }
+
+    double value = 0.0;
+    bool complete = true;
+
+    auto readInt = [&](const char* key, int& field) {
+        if (extractThresholdNumber(responseBody, key, value)) {
+            field = static_cast<int>(value);
+        } else {
+            complete = false;
+        }
+    };
+
+    auto readFloat = [&](const char* key, float& field) {
+        if (extractThresholdNumber(responseBody, key, value)) {
+            field = static_cast<float>(value);
+        } else {
+            complete = false;
+        }
+    };
+
+    readInt("heart_rate_min", out.heartRateMin);
+    readInt("heart_rate_max", out.heartRateMax);
+    readInt("oxygen_saturation_min", out.oxygenSaturationMin);
+    readInt("oxygen_saturation_max", out.oxygenSaturationMax);
+    readFloat("temperature_min", out.temperatureMin);
+    readFloat("temperature_max", out.temperatureMax);
+    readInt("respiratory_rate_min", out.respiratoryRateMin);
+    readInt("respiratory_rate_max", out.respiratoryRateMax);
+
+    out.valid = complete;
+    return out.valid;
+}
