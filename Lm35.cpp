@@ -42,13 +42,25 @@ void Lm35::begin() {
 }
 
 float Lm35::readTemperatureCelsius() {
+#if defined(ESP32)
+    // Use the ESP32 factory (eFuse) ADC calibration to read true millivolts.
+    // The previous raw * VREF / 4095 conversion assumed a perfect 3.3 V, linear
+    // ADC and read far too low in the LM35's low-mV band (ambient ~200 mV).
+    long millivoltSum = 0;
+    for (int i = 0; i < 4; i++) {
+        millivoltSum += analogReadMilliVolts(pin);
+        delay(2);
+    }
+    float millivolts = millivoltSum / 4.0f;
+#else
     long rawSum = 0;
     for (int i = 0; i < 4; i++) {
         rawSum += analogRead(pin);
         delay(2);
     }
-    float voltage = ((rawSum / 4.0f) * ADC_VREF) / ADC_MAX;
-    return (voltage * 1000.0f) / LM35_MV_PER_C;
+    float millivolts = ((rawSum / 4.0f) * ADC_VREF * 1000.0f) / ADC_MAX;
+#endif
+    return millivolts / LM35_MV_PER_C;
 }
 
 float Lm35::getLastReading() const {
