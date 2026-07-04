@@ -648,12 +648,12 @@ int Max30102::averageSamples(const int* samples, int count) {
     return static_cast<int>((sum + count / 2) / count);
 }
 
-bool Max30102::smoothHeartRate(int rawHr, int& smoothedHr) {
-    if (hrSmoothCount > 0) {
+void Max30102::smoothHeartRate(int rawHr, int& smoothedHr) {
+    if (hrSmoothCount >= 2) {
         int avg = averageSamples(hrSmoothBuffer, hrSmoothCount);
         if (abs(rawHr - avg) > HR_OUTLIER_DELTA) {
             smoothedHr = avg;
-            return hrSmoothCount >= 2;
+            return;
         }
     }
 
@@ -667,15 +667,14 @@ bool Max30102::smoothHeartRate(int rawHr, int& smoothedHr) {
     }
 
     smoothedHr = averageSamples(hrSmoothBuffer, hrSmoothCount);
-    return true;
 }
 
-bool Max30102::smoothSpO2(int rawSpO2, int& smoothedSpO2) {
-    if (spo2SmoothCount > 0) {
+void Max30102::smoothSpO2(int rawSpO2, int& smoothedSpO2) {
+    if (spo2SmoothCount >= 2) {
         int avg = averageSamples(spo2SmoothBuffer, spo2SmoothCount);
         if (abs(rawSpO2 - avg) > SPO2_OUTLIER_DELTA) {
             smoothedSpO2 = avg;
-            return spo2SmoothCount >= 2;
+            return;
         }
     }
 
@@ -689,7 +688,6 @@ bool Max30102::smoothSpO2(int rawSpO2, int& smoothedSpO2) {
     }
 
     smoothedSpO2 = averageSamples(spo2SmoothBuffer, spo2SmoothCount);
-    return true;
 }
 
 void Max30102::calculateMetrics() {
@@ -722,16 +720,9 @@ void Max30102::calculateMetrics() {
 
     if (rawHrOk) {
         int smoothedHr = 0;
-        if (smoothHeartRate(static_cast<int>(heartRate), smoothedHr)) {
-            lastHeartRate = smoothedHr;
-            lastReadingValid = true;
-        } else if (hrSmoothCount >= 2) {
-            lastHeartRate = averageSamples(hrSmoothBuffer, hrSmoothCount);
-            lastReadingValid = true;
-        } else {
-            lastReadingValid = false;
-            lastHeartRate = 0;
-        }
+        smoothHeartRate(static_cast<int>(heartRate), smoothedHr);
+        lastHeartRate = smoothedHr;
+        lastReadingValid = true;
     } else {
         lastReadingValid = false;
         lastHeartRate = 0;
@@ -739,16 +730,9 @@ void Max30102::calculateMetrics() {
 
     if (rawSpO2Ok) {
         int smoothedSpO2 = 0;
-        if (smoothSpO2(static_cast<int>(spo2), smoothedSpO2)) {
-            lastSpO2 = smoothedSpO2;
-            lastSpO2Valid = true;
-        } else if (spo2SmoothCount >= 1) {
-            lastSpO2 = averageSamples(spo2SmoothBuffer, spo2SmoothCount);
-            lastSpO2Valid = true;
-        } else {
-            lastSpO2Valid = false;
-            lastSpO2 = 0;
-        }
+        smoothSpO2(static_cast<int>(spo2), smoothedSpO2);
+        lastSpO2 = smoothedSpO2;
+        lastSpO2Valid = true;
     } else {
         lastSpO2Valid = false;
         lastSpO2 = 0;

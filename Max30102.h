@@ -67,8 +67,8 @@ private:
     int spo2SmoothCount;
 
     static int averageSamples(const int* samples, int count);
-    bool smoothHeartRate(int rawHr, int& smoothedHr);
-    bool smoothSpO2(int rawSpO2, int& smoothedSpO2);
+    void smoothHeartRate(int rawHr, int& smoothedHr);
+    void smoothSpO2(int rawSpO2, int& smoothedSpO2);
 
     bool writeRegister(uint8_t reg, uint8_t value);
     uint8_t readRegister(uint8_t reg);
